@@ -1765,6 +1765,12 @@ consoleLog(`[StatsDebug] Unique image hashes for viewer: ${uniqueImageViewerHash
                 if (options.isToggleOpen && lastViewerScrollTop > 0) {
                     messagesContainer.scrollTop = lastViewerScrollTop;
                     consoleLog(`Restored scroll position to: ${lastViewerScrollTop}`);
+                } else if (!storedAnchoredInstanceId) {
+                    // Only scroll to bottom if there's no anchor to handle
+                    setTimeout(() => {
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        consoleLog(`No anchored message, scrolling to bottom.`);
+                    }, 550); // Delay slightly after anchor check
                 }
             }
 
