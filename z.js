@@ -1875,35 +1875,27 @@ function _populateAttachmentDivWithMedia(
         const webSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}${message.attachment.ext}`;
         const thumbSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}s.jpg`;
 
-        const tryLoadFromWeb = (isThumb) => {
-            const imgToLoad = isThumb ? thumbSrc : webSrc;
-            const img = new Image();
-            img.onload = () => {
-                setImageProperties(isThumb);
-                img.style.cursor = 'pointer';
-                img.style.display = 'block';
-                img.style.borderRadius = '3px';
-                attachmentDiv.appendChild(img);
-            };
-            img.onerror = () => {
-                if (message.attachment.localStoreId && otkMediaDB) {
-                    const transaction = otkMediaDB.transaction(['mediaStore'], 'readonly');
-                    const store = transaction.objectStore('mediaStore');
-                    const request = store.get(isThumb ? message.attachment.localThumbStoreId : message.attachment.localStoreId);
-                    request.onsuccess = (event) => {
-                        const storedItem = event.target.result;
-                        if (storedItem && storedItem.blob) {
-                            const dataURL = URL.createObjectURL(storedItem.blob);
-                            createdBlobUrls.add(dataURL);
-                            img.src = dataURL;
-                        }
-                    };
-                }
-            };
-            img.src = imgToLoad;
+        img.onload = () => {
+            // Properties are already set, just need to ensure it's visible
+            img.style.display = 'block';
+        };
+        img.onerror = () => {
+            if (message.attachment.localStoreId && otkMediaDB) {
+                const transaction = otkMediaDB.transaction(['mediaStore'], 'readonly');
+                const store = transaction.objectStore('mediaStore');
+                const request = store.get(defaultToThumbnail ? message.attachment.localThumbStoreId : message.attachment.localStoreId);
+                request.onsuccess = (event) => {
+                    const storedItem = event.target.result;
+                    if (storedItem && storedItem.blob) {
+                        const dataURL = URL.createObjectURL(storedItem.blob);
+                        createdBlobUrls.add(dataURL);
+                        img.src = dataURL;
+                    }
+                };
+            }
         };
 
-        tryLoadFromWeb(defaultToThumbnail);
+        setImageProperties(defaultToThumbnail);
         uniqueImageViewerHashes.add(filehash);
 
         img.addEventListener('click', () => {
