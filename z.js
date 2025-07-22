@@ -74,8 +74,6 @@
     // Debug mode (load from localStorage, default to true)
     let DEBUG_MODE = localStorage.getItem(DEBUG_MODE_KEY) === null ? true : localStorage.getItem(DEBUG_MODE_KEY) === 'true';
 
-    const memorySavingMode = localStorage.getItem('otkMemorySavingMediaMode') === 'true';
-
     const consoleLog = (...args) => {
         if (DEBUG_MODE) {
             console.log('[OTK Tracker]', ...args);
@@ -1803,15 +1801,48 @@ function _populateAttachmentDivWithMedia(
 
     const extLower = message.attachment.ext.toLowerCase();
     const filehash = message.attachment.filehash_db_key || `${message.attachment.tim}${extLower}`;
-    const memorySavingMode = localStorage.getItem('otkMemorySavingMediaMode') === 'true';
 
     if (['.jpg', '.jpeg', '.png', '.gif'].includes(extLower)) {
+        // --- IMAGE LOGIC ---
         const fullsizeWidth = message.attachment.w;
         const fullsizeHeight = message.attachment.h;
+        const displayWidth = message.attachment.tn_w;
+        const displayHeight = message.attachment.tn_h;
+
+        let defaultToThumbnail;
+
+        // Determine the viewer's max-height constraint
         const maxHeight = (layoutStyle === 'new_design' || isTopLevelMessage) ? 400 : 350;
-        const aspectRatio = fullsizeWidth / fullsizeHeight;
-        const scaledWidth = maxHeight * aspectRatio;
-        const defaultToThumbnail = !((scaledWidth <= 570 && maxHeight <= 730) || (scaledWidth <= 2050 && maxHeight <= 530));
+
+        // --- SOLUTION START ---
+
+        let widthToTest;
+        let heightToTest;
+
+        // Check if the image is already shorter than the viewer's height constraint.
+        if (fullsizeHeight <= maxHeight) {
+            // If it is, the browser will NOT scale it up.
+            // We should test its REAL dimensions against our rules.
+            widthToTest = fullsizeWidth;
+            heightToTest = fullsizeHeight;
+            consoleLog(`[ImageRule] Image is short (${fullsizeHeight}px <= ${maxHeight}px). Testing real dimensions: ${widthToTest}px x ${heightToTest}px.`);
+        } else {
+            // If the image is taller, it WILL be scaled down.
+            // We must test its HYPOTHETICAL scaled dimensions.
+            const aspectRatio = fullsizeWidth / fullsizeHeight;
+            widthToTest = maxHeight * aspectRatio;
+            heightToTest = maxHeight;
+            consoleLog(`[ImageRule] Image is tall (${fullsizeHeight}px > ${maxHeight}px). Testing scaled dimensions: ${Math.round(widthToTest)}px x ${Math.round(heightToTest)}px.`);
+        }
+
+        // Now, use 'widthToTest' and 'heightToTest' in the decision rules.
+        if ((widthToTest <= 570 && heightToTest <= 730) || (widthToTest <= 2050 && heightToTest <= 530)) {
+            defaultToThumbnail = false; // Show the larger version
+        } else {
+            defaultToThumbnail = true; // Show the thumbnail
+        }
+
+        // --- SOLUTION END ---
 
         const img = document.createElement('img');
         img.dataset.filehash = filehash;
@@ -1841,60 +1872,39 @@ function _populateAttachmentDivWithMedia(
             }
         };
 
-        if (memorySavingMode) {
-            setImageProperties(defaultToThumbnail);
-            uniqueImageViewerHashes.add(filehash);
-        } else {
-            if (message.attachment.localStoreId && otkMediaDB) {
-                mediaLoadPromises.push(new Promise((resolveMedia) => {
-                    const transaction = otkMediaDB.transaction(['mediaStore'], 'readonly');
-                    const store = transaction.objectStore('mediaStore');
-                    const request = store.get(message.attachment.localStoreId);
-                    request.onsuccess = (event) => {
-                        const storedItem = event.target.result;
-                        if (storedItem && storedItem.blob && !storedItem.isThumbnail) {
-                            const dataURL = URL.createObjectURL(storedItem.blob);
-                            createdBlobUrls.add(dataURL);
-                            img.dataset.fullSrc = dataURL;
-                        }
-                        setImageProperties(defaultToThumbnail);
-                        uniqueImageViewerHashes.add(filehash);
-                        resolveMedia();
-                    };
-                    request.onerror = (event) => {
-                        consoleError(`Error fetching full image ${filehash} from IDB: ${event.target.error}`);
-                        setImageProperties(defaultToThumbnail);
-                        uniqueImageViewerHashes.add(filehash);
-                        resolveMedia();
-                    };
-                }));
-            } else {
-                setImageProperties(defaultToThumbnail);
-                uniqueImageViewerHashes.add(filehash);
-            }
+        const webSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}${message.attachment.ext}`;
+        const thumbSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}s.jpg`;
 
-            if (message.attachment.localThumbStoreId && otkMediaDB) {
-                mediaLoadPromises.push(new Promise((resolveMedia) => {
+        const tryLoadFromWeb = (isThumb) => {
+            const imgToLoad = isThumb ? thumbSrc : webSrc;
+            const img = new Image();
+            img.onload = () => {
+                setImageProperties(isThumb);
+                img.style.cursor = 'pointer';
+                img.style.display = 'block';
+                img.style.borderRadius = '3px';
+                attachmentDiv.appendChild(img);
+            };
+            img.onerror = () => {
+                if (message.attachment.localStoreId && otkMediaDB) {
                     const transaction = otkMediaDB.transaction(['mediaStore'], 'readonly');
                     const store = transaction.objectStore('mediaStore');
-                    const request = store.get(message.attachment.localThumbStoreId);
+                    const request = store.get(isThumb ? message.attachment.localThumbStoreId : message.attachment.localStoreId);
                     request.onsuccess = (event) => {
                         const storedItem = event.target.result;
-                        if (storedItem && storedItem.blob && storedItem.isThumbnail) {
+                        if (storedItem && storedItem.blob) {
                             const dataURL = URL.createObjectURL(storedItem.blob);
                             createdBlobUrls.add(dataURL);
-                            img.dataset.thumbSrc = dataURL;
-                            if (img.dataset.isThumbnail === 'true') img.src = dataURL; // Re-set src if it's currently a thumbnail
+                            img.src = dataURL;
                         }
-                        resolveMedia();
                     };
-                    request.onerror = (event) => {
-                        consoleError(`Error fetching thumb ${filehash} from IDB: ${event.target.error}`);
-                        resolveMedia();
-                    };
-                }));
-            }
-        }
+                }
+            };
+            img.src = imgToLoad;
+        };
+
+        tryLoadFromWeb(defaultToThumbnail);
+        uniqueImageViewerHashes.add(filehash);
 
         img.addEventListener('click', () => {
             const currentlyThumbnail = img.dataset.isThumbnail === 'true';
@@ -1905,50 +1915,70 @@ function _populateAttachmentDivWithMedia(
         attachmentDiv.appendChild(img);
 
     } else if (extLower.endsWith('webm') || extLower.endsWith('mp4')) {
-        const setupVideo = (src) => {
-            const videoElement = document.createElement('video');
-            const webVideoSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}${extLower.startsWith('.') ? extLower : '.' + extLower}`;
+        const videoElement = document.createElement('video');
+        videoElement.controls = true;
+        videoElement.style.maxWidth = '85%';
+        videoElement.style.maxHeight = (layoutStyle === 'new_design' || isTopLevelMessage) ? '400px' : '300px';
+        videoElement.style.borderRadius = '3px';
+        videoElement.style.display = 'block';
+        attachmentDiv.appendChild(videoElement);
 
-            videoElement.src = src || webVideoSrc;
-            videoElement.controls = true;
-            videoElement.style.maxWidth = '85%';
-            videoElement.style.maxHeight = (layoutStyle === 'new_design' || isTopLevelMessage) ? '400px' : '300px';
-            videoElement.style.borderRadius = '3px';
-            videoElement.style.display = 'block';
-            attachmentDiv.appendChild(videoElement);
-            if (message.attachment.filehash_db_key && isTopLevelMessage) {
-                viewerTopLevelAttachedVideoHashes.add(message.attachment.filehash_db_key);
+        const webVideoSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}${extLower.startsWith('.') ? extLower : '.' + extLower}`;
+
+        const loadFromWeb = () => {
+            mediaLoadPromises.push(new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url: webVideoSrc,
+                    responseType: 'blob',
+                    onload: function(response) {
+                        if (response.status === 200) {
+                            const blob = response.response;
+                            const videoUrl = URL.createObjectURL(blob);
+                            createdBlobUrls.add(videoUrl);
+                            videoElement.src = videoUrl;
+                            resolve();
+                        } else {
+                            loadFromCache();
+                            resolve();
+                        }
+                    },
+                    onerror: function(error) {
+                        consoleWarn(`[CSP Bypass] GM_xmlhttpRequest failed for ${webVideoSrc}. Falling back to cache.`, error);
+                        loadFromCache();
+                        resolve();
+                    }
+                });
+            }));
+        };
+
+        const loadFromCache = () => {
+            if (message.attachment.localStoreId && otkMediaDB) {
+                const transaction = otkMediaDB.transaction(['mediaStore'], 'readonly');
+                const store = transaction.objectStore('mediaStore');
+                const request = store.get(message.attachment.localStoreId);
+                request.onsuccess = (event) => {
+                    const storedItem = event.target.result;
+                    if (storedItem && storedItem.blob) {
+                        const dataURL = URL.createObjectURL(storedItem.blob);
+                        createdBlobUrls.add(dataURL);
+                        videoElement.src = dataURL;
+                    } else {
+                        consoleWarn(`Video ${message.attachment.filename} not found in cache.`);
+                    }
+                };
+                 request.onerror = (event) => {
+                    consoleError("Error reading video from cache:", event.target.error);
+                };
+            } else {
+                consoleWarn(`Video ${message.attachment.filename} not available from web and no cache entry.`);
             }
         };
 
-        if (memorySavingMode) {
-            setupVideo(null); // Always load from web in memory saving mode
-        } else {
-            if (message.attachment.localStoreId && otkMediaDB) {
-                mediaLoadPromises.push(new Promise((resolveMedia) => {
-                    const transaction = otkMediaDB.transaction(['mediaStore'], 'readonly');
-                    const store = transaction.objectStore('mediaStore');
-                    const request = store.get(message.attachment.localStoreId);
-                    request.onsuccess = (event) => {
-                        const storedItem = event.target.result;
-                        if (storedItem && storedItem.blob) {
-                            const dataURL = URL.createObjectURL(storedItem.blob);
-                            createdBlobUrls.add(dataURL);
-                            setupVideo(dataURL);
-                        } else {
-                            setupVideo(null); // Fallback to web if not in DB
-                        }
-                        resolveMedia();
-                    };
-                    request.onerror = (event) => {
-                        consoleError(`Error fetching video ${filehash} from IDB: ${event.target.error}`);
-                        setupVideo(null); // Fallback to web on error
-                        resolveMedia();
-                    };
-                }));
-            } else {
-                setupVideo(null); // Load from web if no localStoreId
-            }
+        loadFromWeb(); // Start the loading process
+
+        if (message.attachment.filehash_db_key && isTopLevelMessage) {
+            viewerTopLevelAttachedVideoHashes.add(message.attachment.filehash_db_key);
         }
     }
 }
@@ -5912,7 +5942,6 @@ function setupOptionsWindow() {
     themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load Kick Clips:", storageKey: 'otkLazyLoadKick', defaultValue: true, idSuffix: 'lazy-load-kick', requiresRerender: true }));
     themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Unload Videos When Scrolled Past:", storageKey: 'otkUnloadVideos', defaultValue: true, idSuffix: 'unload-videos', requiresRerender: true }));
     themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Disable Tweet Caching:", storageKey: 'otkDisableTweetCaching', defaultValue: false, idSuffix: 'disable-tweet-caching', requiresRerender: true }));
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Memory Saving Media Mode:", storageKey: 'otkMemorySavingMediaMode', defaultValue: false, idSuffix: 'memory-saving-media-mode', requiresRerender: true }));
 
     // --- Message Limiting Feature ---
     const messageLimitGroup = document.createElement('div');
@@ -6758,8 +6787,8 @@ async function main() {
     document.head.appendChild(styleElement);
     consoleLog("Injected CSS for anchored messages.");
 
-    setupOptionsWindow(); // Call to create the options window shell and event listeners
     await applyMainTheme();
+    setupOptionsWindow(); // Call to create the options window shell and event listeners
     applyThemeSettings(); // Apply any saved theme settings
 
     consoleLog('Attempting to call setupLoadingScreen...');
