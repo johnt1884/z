@@ -4104,10 +4104,14 @@ function _populateAttachmentDivWithMedia(
 
             const newMessagesToAppend = allFetchedMessagesThisCycle.filter(m => !renderedMessageIdsInViewer.has(m.id));
 
+            consoleLog(`[Manual Refresh] About to check viewer state. Is open: ${viewerIsOpen}. New messages to append: ${newMessagesToAppend.length}. Skip viewer update: ${skipViewerUpdate}.`);
+
             if (!skipViewerUpdate) { // Only perform viewer updates if not skipped
                 if (viewerIsOpen && newMessagesToAppend.length > 0) {
                     consoleLog(`[Manual Refresh] Viewer is open, appending ${newMessagesToAppend.length} new messages.`);
                     await appendNewMessagesToViewer(newMessagesToAppend);
+                } else {
+                    consoleLog(`[Manual Refresh] Viewer not updated. Is open: ${viewerIsOpen}, New messages: ${newMessagesToAppend.length}`);
                 }
             } else {
                 consoleLog('[Refresh] Viewer update skipped as requested by options.');
