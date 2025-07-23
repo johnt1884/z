@@ -363,7 +363,7 @@ function appendTextOrQuoteSegment(textElement, segment, quoteRegex, currentDepth
         if (quotedMessageObject) {
             const quotedElement = createMessageElementDOM(
                 quotedMessageObject,
-            mediaLoadPromises, // Pass down the array for mediaLoadPromises for quotes
+                                mediaLoadPromises, // Pass down the array for mediaLoadPromises for quotes
                 uniqueImageViewerHashes,
                 // uniqueVideoViewerHashes, // Removed
                 quotedMessageObject.board || boardForLink,
@@ -373,6 +373,9 @@ function appendTextOrQuoteSegment(textElement, segment, quoteRegex, currentDepth
                 parentMessageId // Pass the PARENT message's ID for the quote
             );
             if (quotedElement) {
+                if (currentDepth >= MAX_QUOTE_DEPTH - 1 && !quotedMessageObject.text) {
+                    return;
+                }
                 textElement.appendChild(quotedElement);
             }
         } else {
@@ -447,18 +450,11 @@ function createTwitchEmbedElement(type, id, timestampStr) {
     iframe.setAttribute('allowfullscreen', 'true');
     iframe.setAttribute('scrolling', 'no');
 
-    const lazyLoadEnabled = (localStorage.getItem('otkLazyLoadTwitch') || 'true') === 'true';
-
-    if (lazyLoadEnabled) {
-        iframe.dataset.src = embedUrl;
-        if (mediaIntersectionObserver) {
-            mediaIntersectionObserver.observe(wrapper);
-        } else {
-            consoleWarn("[LazyLoad] mediaIntersectionObserver not ready. Iframe will load immediately:", iframe.dataset.src);
-            iframe.src = iframe.dataset.src;
-        }
+    iframe.dataset.src = embedUrl;
+    if (mediaIntersectionObserver) {
+        mediaIntersectionObserver.observe(wrapper);
     } else {
-        iframe.src = embedUrl;
+        consoleWarn("[LazyLoad] mediaIntersectionObserver not ready. Iframe will load immediately:", iframe.dataset.src);
     }
 
     wrapper.appendChild(iframe);
@@ -608,22 +604,12 @@ function createTweetEmbedElement(tweetId) {
     }
 
     const embedContainer = document.createElement('div');
-    embedContainer.className = 'otk-tweet-embed-wrapper'; // New wrapper class for the observer
-    embedContainer.dataset.tweetId = tweetId; // Store tweetId for the observer
+    embedContainer.className = 'otk-tweet-embed-wrapper';
+    embedContainer.dataset.tweetId = tweetId;
     embedContainer.style.display = 'inline-block';
-    embedContainer.style.minHeight = '100px'; // Placeholder height
+    embedContainer.style.minHeight = '100px';
 
-    // The IntersectionObserver will now be responsible for calling a function to process the tweet.
-    // We no longer call processTweet directly from here.
-    // The logic from processTweet will be moved into a new function or integrated into the observer's callback.
-
-    if (mediaIntersectionObserver) {
-        mediaIntersectionObserver.observe(embedContainer);
-    } else {
-        // Fallback or error, though the observer should be ready.
-        consoleWarn("[LazyLoad] mediaIntersectionObserver not ready for Tweet. Tweet will not load.", tweetId);
-        embedContainer.textContent = "[Lazy load error - Tweet not loaded]";
-    }
+    processTweetEmbed(embedContainer);
 
     return embedContainer;
 }
@@ -1967,7 +1953,7 @@ function _populateAttachmentDivWithMedia(
             }
         };
 
-        loadFromWeb(); // Start the loading process
+        loadFromWeb();
 
         if (message.attachment.filehash_db_key && isTopLevelMessage) {
             viewerTopLevelAttachedVideoHashes.add(message.attachment.filehash_db_key);
@@ -2010,7 +1996,7 @@ function _populateAttachmentDivWithMedia(
         // Default for displayFilenames is true (meaning, filenames are SHOWN by default)
         let shouldDisplayFilenames;
         if (allThemeSettings.hasOwnProperty(displayFilenamesKey)) {
-            shouldDisplayFilenames = allThemeSettings[displayFilenamesKey] === true;
+            shouldDisplayFilenames = allThemeSettings[displayFilenamesKey];
         } else {
             shouldDisplayFilenames = true; // Default value
         }
@@ -2695,7 +2681,7 @@ function _populateAttachmentDivWithMedia(
                 font-weight: bold;
                 margin-bottom: 8px; /* Default margin */
                 padding-bottom: ${headerPaddingBottomStyle}; /* Default padding for underline */
-                border-bottom: ${headerBorderBottomStyle}; /* Default border for underline */
+                border-bottom: 1px solid ${headerBorderVar}; /* Default border for underline */
                 display: flex; /* Default display */
                 align-items: center;
                 width: 100%;
@@ -2884,7 +2870,7 @@ function _populateAttachmentDivWithMedia(
                             if (match) {
                                 const tweetId = match[patternObj.idGroup];
                                 if (tweetId) {
-                                    const tweetEmbed = createTweetEmbedElement(tweetId, textElement);
+                                    const tweetEmbed = createTweetEmbedElement(tweetId);
                                     if (tweetEmbed) {
                                         textElement.appendChild(tweetEmbed);
                                     }
@@ -3481,52 +3467,70 @@ function _populateAttachmentDivWithMedia(
                                 // Not in DB, try to download and store
                                 const mediaUrl = `https://i.4cdn.org/${opPost.board || 'b'}/${post.tim}${post.ext}`;
                                 consoleLog(`Downloading media for post ${post.no} (DB key: ${filehash_db_key}) from ${mediaUrl}`);
-                                const mediaResponse = await fetch(mediaUrl);
-                                if (mediaResponse.ok) {
-                                    const blob = await mediaResponse.blob();
-                                    const storeTransaction = otkMediaDB.transaction(['mediaStore'], 'readwrite');
-                                    const mediaStore = storeTransaction.objectStore('mediaStore');
-
-                                    // Stored object's key property must match the store's keyPath ('filehash')
-                                    const itemToStore = {
-                                        filehash: filehash_db_key, // This is the keyPath value
-                                        blob: blob,
-                                        originalThreadId: threadId,
-                                        filename: post.filename,
-                                        ext: post.ext, // Store ext for easier type identification for stats
-                                        timestamp: Date.now(),
-                                        isThumbnail: false // Mark that this is not a thumbnail
-                                    };
-
-                                    const putRequest = mediaStore.put(itemToStore);
-                                    await new Promise((resolvePut, rejectPut) => {
-                                        putRequest.onsuccess = () => {
-                                            message.attachment.localStoreId = filehash_db_key;
-                                            consoleLog(`Stored full media with key ${filehash_db_key} (post ${post.no}) in IndexedDB.`);
-
-                                            const extLower = post.ext.toLowerCase();
-                                            if (['.jpg', '.jpeg', '.png', '.gif'].includes(extLower)) {
-                                                // This is where newlyStoredImagesInThread was incremented.
-                                                // It will now be incremented after the trueFetchedImages loop.
-                                                // fetchedImagesInThread will also be handled later.
-                                                let currentImageCount = parseInt(localStorage.getItem(LOCAL_IMAGE_COUNT_KEY) || '0');
-                                                localStorage.setItem(LOCAL_IMAGE_COUNT_KEY, (currentImageCount + 1).toString());
-                                                // newlyStoredImagesInThread++; // This specific increment is moved
-                                            } else if (['.webm', '.mp4'].includes(extLower)) {
-                                                // fetchedVideosInThread handled later
-                                                let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
-                                                localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
+                                try {
+                                    const mediaResponse = await new Promise((resolve, reject) => {
+                                        GM_xmlhttpRequest({
+                                            method: "GET",
+                                            url: mediaUrl,
+                                            responseType: 'blob',
+                                            onload: (response) => {
+                                                if (response.status === 200) {
+                                                    resolve(response.response);
+                                                } else {
+                                                    reject(new Error(`Failed to fetch media: ${response.status}`));
+                                                }
+                                            },
+                                            onerror: (error) => {
+                                                reject(error);
                                             }
-                                            updateDisplayedStatistics();
-                                            resolvePut();
-                                        };
-                                        putRequest.onerror = (putEvent) => {
-                                            consoleError(`IndexedDB 'put' error for full media key ${filehash_db_key} (post ${post.no}):`, putEvent.target.error);
-                                            rejectPut(putEvent.target.error);
-                                        };
+                                        });
                                     });
-                                } else {
-                                    consoleWarn(`Failed to download full media for post ${post.no} (DB key: ${filehash_db_key}). Status: ${mediaResponse.status}`);
+
+                                    if (mediaResponse) {
+                                        const blob = mediaResponse;
+                                        const storeTransaction = otkMediaDB.transaction(['mediaStore'], 'readwrite');
+                                        const mediaStore = storeTransaction.objectStore('mediaStore');
+
+                                        // Stored object's key property must match the store's keyPath ('filehash')
+                                        const itemToStore = {
+                                            filehash: filehash_db_key, // This is the keyPath value
+                                            blob: blob,
+                                            originalThreadId: threadId,
+                                            filename: post.filename,
+                                            ext: post.ext, // Store ext for easier type identification for stats
+                                            timestamp: Date.now(),
+                                            isThumbnail: false // Mark that this is not a thumbnail
+                                        };
+
+                                        const putRequest = mediaStore.put(itemToStore);
+                                        await new Promise((resolvePut, rejectPut) => {
+                                            putRequest.onsuccess = () => {
+                                                message.attachment.localStoreId = filehash_db_key;
+                                                consoleLog(`Stored full media with key ${filehash_db_key} (post ${post.no}) in IndexedDB.`);
+
+                                                const extLower = post.ext.toLowerCase();
+                                                if (['.jpg', '.jpeg', '.png', '.gif'].includes(extLower)) {
+                                                    newlyStoredImagesInThread++;
+                                                    let currentImageCount = parseInt(localStorage.getItem(LOCAL_IMAGE_COUNT_KEY) || '0');
+                                                    localStorage.setItem(LOCAL_IMAGE_COUNT_KEY, (currentImageCount + 1).toString());
+                                                } else if (['.webm', '.mp4'].includes(extLower)) {
+                                                    // fetchedVideosInThread handled later
+                                                    let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
+                                                    localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
+                                                }
+                                                updateDisplayedStatistics();
+                                                resolvePut();
+                                            };
+                                            putRequest.onerror = (putEvent) => {
+                                                consoleError(`IndexedDB 'put' error for full media key ${filehash_db_key} (post ${post.no}):`, putEvent.target.error);
+                                                rejectPut(putEvent.target.error);
+                                            };
+                                        });
+                                    } else {
+                                        consoleWarn(`Failed to download full media for post ${post.no} (DB key: ${filehash_db_key}). Status: ${mediaResponse.status}`);
+                                    }
+                                } catch (fetchError) {
+                                    consoleError(`Network error when fetching media for post ${post.no} (DB key: ${filehash_db_key}):`, fetchError);
                                 }
                             }
 
@@ -3560,9 +3564,25 @@ function _populateAttachmentDivWithMedia(
                                     const thumbUrl = `https://i.4cdn.org/${opPost.board || 'b'}/${post.tim}s.jpg`;
                                     consoleLog(`Downloading thumbnail for post ${post.no} (DB key: ${thumbnail_filehash_db_key}) from ${thumbUrl}`);
                                     try {
-                                        const thumbResponse = await fetch(thumbUrl);
-                                        if (thumbResponse.ok) {
-                                            const thumbBlob = await thumbResponse.blob();
+                                        const thumbResponse = await new Promise((resolve, reject) => {
+                                            GM_xmlhttpRequest({
+                                                method: "GET",
+                                                url: thumbUrl,
+                                                responseType: 'blob',
+                                                onload: (response) => {
+                                                    if (response.status === 200) {
+                                                        resolve(response.response);
+                                                    } else {
+                                                        reject(new Error(`Failed to fetch thumbnail: ${response.status}`));
+                                                    }
+                                                },
+                                                onerror: (error) => {
+                                                    reject(error);
+                                                }
+                                            });
+                                        });
+                                        if (thumbResponse) {
+                                            const thumbBlob = thumbResponse;
                                             const thumbStoreTransaction = otkMediaDB.transaction(['mediaStore'], 'readwrite'); // New transaction
                                             const thumbMediaStore = thumbStoreTransaction.objectStore('mediaStore');
                                             const thumbItemToStore = {
@@ -4492,27 +4512,56 @@ function _populateAttachmentDivWithMedia(
         // Debug mode checkbox and label are removed from here.
         // DEBUG_MODE is now only toggled via localStorage or by editing the script.
 
-        const bgUpdateCheckboxContainer = document.createElement('div');
-        bgUpdateCheckboxContainer.style.cssText = `display: flex; align-items: center;`;
+        const bgUpdateContainer = document.createElement('div');
+        bgUpdateContainer.style.cssText = `display: flex; align-items: center;`;
+
+        const countdownContainer = document.createElement('div');
+        countdownContainer.id = 'otk-countdown-container';
+        countdownContainer.style.cssText = `display: flex; align-items: center;`;
+
+        const countdownTimer = document.createElement('span');
+        countdownTimer.id = 'otk-countdown-timer';
+        countdownTimer.textContent = '00:00:00';
+        countdownTimer.style.cssText = `font-size: 11px; color: var(--otk-countdown-text-color, #e6e6e6);`;
+
+        const countdownLabel = document.createElement('span');
+        countdownLabel.id = 'otk-countdown-label';
+        countdownLabel.textContent = 'Next Update';
+        countdownLabel.style.cssText = `font-size: 11px; color: var(--otk-countdown-text-color, #e6e6e6); margin-left: 5px;`;
+
+        countdownContainer.appendChild(countdownTimer);
+        countdownContainer.appendChild(countdownLabel);
+
+        const separator = document.createElement('span');
+        separator.textContent = '|';
+        separator.style.cssText = `font-size: 11px; color: var(--otk-separator-color, #e6e6e6); margin: 0 10px;`;
+
         const bgUpdateCheckbox = document.createElement('input');
         bgUpdateCheckbox.type = 'checkbox';
         bgUpdateCheckbox.id = 'otk-disable-bg-update-checkbox';
         bgUpdateCheckbox.checked = localStorage.getItem(BACKGROUND_UPDATES_DISABLED_KEY) === 'true';
-        bgUpdateCheckbox.style.marginRight = '5px';
 
         const bgUpdateLabel = document.createElement('label');
         bgUpdateLabel.htmlFor = 'otk-disable-bg-update-checkbox';
-        bgUpdateLabel.textContent = 'Disable Background Updates'; // Restored full text
-        // Apply the new CSS variable for the font color
+        bgUpdateLabel.textContent = 'Disable Background Updates';
         bgUpdateLabel.style.cssText = `font-size: 11px; color: var(--otk-disable-bg-font-color, #e6e6e6); white-space: normal; cursor: pointer; line-height: 1.2;`;
 
-        bgUpdateCheckboxContainer.appendChild(bgUpdateCheckbox);
-        bgUpdateCheckboxContainer.appendChild(bgUpdateLabel);
-        controlsWrapper.appendChild(bgUpdateCheckboxContainer);
+        bgUpdateContainer.appendChild(countdownContainer);
+        bgUpdateContainer.appendChild(separator);
+        bgUpdateContainer.appendChild(bgUpdateLabel);
+        bgUpdateCheckbox.style.marginLeft = '5px';
+        bgUpdateContainer.appendChild(bgUpdateCheckbox);
+
+        controlsWrapper.appendChild(bgUpdateContainer);
 
         const btnClearRefresh = createTrackerButton('Restart Tracker', 'otk-restart-tracker-btn');
         btnClearRefresh.style.alignSelf = 'center'; // Override parent's align-items:stretch to allow natural width & centering
         btnClearRefresh.style.marginTop = '4px'; // Retain margin for spacing from checkbox if column is short
+
+        const btnMemoryReport = createTrackerButton('Memory Report', 'otk-memory-report-btn');
+        btnMemoryReport.style.display = localStorage.getItem('otkMemoryReportEnabled') === 'true' ? 'inline-block' : 'none';
+        btnMemoryReport.addEventListener('click', generateMemoryUsageReport);
+
 
         const thirdButtonColumn = document.createElement('div');
         thirdButtonColumn.style.cssText = `
@@ -4539,6 +4588,7 @@ function _populateAttachmentDivWithMedia(
         bottomRowContainer.appendChild(btnToggleViewer);
         bottomRowContainer.appendChild(btnRefresh);
         bottomRowContainer.appendChild(btnClearRefresh);
+        bottomRowContainer.appendChild(btnMemoryReport);
 
         // Append row containers to the main buttonContainer
         buttonContainer.appendChild(topRowContainer);
@@ -4572,11 +4622,19 @@ function _populateAttachmentDivWithMedia(
         bgUpdateCheckbox.addEventListener('change', () => {
             if (bgUpdateCheckbox.checked) {
                 stopBackgroundRefresh();
+                if (countdownIntervalId) {
+                    clearInterval(countdownIntervalId);
+                    countdownIntervalId = null;
+                }
+                const countdownTimer = document.getElementById('otk-countdown-timer');
+                if (countdownTimer) {
+                    countdownTimer.textContent = '--:--:--';
+                }
                 localStorage.setItem(BACKGROUND_UPDATES_DISABLED_KEY, 'true');
                 consoleLog('Background updates disabled via checkbox.');
             } else {
-                startBackgroundRefresh(true); // Start immediately
                 localStorage.setItem(BACKGROUND_UPDATES_DISABLED_KEY, 'false');
+                startBackgroundRefresh(true); // Start immediately
                 consoleLog('Background updates enabled via checkbox.');
             }
         });
@@ -4587,6 +4645,23 @@ function _populateAttachmentDivWithMedia(
 
     // --- Background Refresh Control ---
     let scrollTimeout = null;
+    let countdownIntervalId = null;
+
+    function updateCountdown() {
+        const nextUpdateTimestamp = parseInt(localStorage.getItem('otkNextUpdateTimestamp') || '0', 10);
+        const countdownTimer = document.getElementById('otk-countdown-timer');
+        if (!countdownTimer) {
+            return;
+        }
+
+        const now = Date.now();
+        const timeLeft = Math.max(0, nextUpdateTimestamp - now);
+        const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+        const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+
+        countdownTimer.textContent = `${padNumber(hours, 2)}:${padNumber(minutes, 2)}:${padNumber(seconds, 2)}`;
+    }
 
     function startBackgroundRefresh(immediate = false) {
         if (localStorage.getItem(BACKGROUND_UPDATES_DISABLED_KEY) === 'true') {
@@ -4627,6 +4702,11 @@ function _populateAttachmentDivWithMedia(
             } else {
                 consoleLog(`Background refresh scheduled in ${minUpdateMinutes}-${maxUpdateMinutes} minutes. Next update at ~${new Date(Date.now() + refreshIntervalMs).toLocaleTimeString()}`);
             }
+
+            if (countdownIntervalId) {
+                clearInterval(countdownIntervalId);
+            }
+            countdownIntervalId = setInterval(updateCountdown, 1000);
         }
     }
 
@@ -4684,20 +4764,13 @@ function processTweetEmbed(embedContainer) {
     }
 
     const embedMode = localStorage.getItem('otk-tweet-embed-mode') || 'default';
-    const disableCaching = localStorage.getItem('otkDisableTweetCaching') === 'true';
-    const cacheKey = `${tweetId}-${embedMode}`;
 
     const processTweet = () => {
-        // Inner function to handle rendering, preventing code duplication
         const renderTweet = (html) => {
             embedContainer.innerHTML = html;
             if (window.twttr && window.twttr.widgets) {
-                // Defer the execution to ensure the DOM is updated from innerHTML.
-                // This is the key fix for the race condition.
                 setTimeout(() => {
                     try {
-                        // Pass the specific container to prevent the widget
-                        // from scanning the entire document.
                         window.twttr.widgets.load(embedContainer);
                     } catch (e) {
                         consoleError("Error executing twttr.widgets.load:", e);
@@ -4707,14 +4780,7 @@ function processTweetEmbed(embedContainer) {
             embedContainer.dataset.processed = 'true';
         };
 
-        // Path for cached tweets
-        if (!disableCaching && tweetCache[cacheKey]) {
-            renderTweet(tweetCache[cacheKey]);
-            return;
-        }
-
-        // Path for new tweets
-        const embedUrl = `https://publish.x.com/oembed?url=https://twitter.com/any/status/${tweetId}&theme=${embedMode}&omit_script=true`;
+        const embedUrl = `https://publish.x.com/oembed?url=https://twitter.com/any/status/${tweetId}&theme=${embedMode}`;
         const maxRetries = 3;
         let attempt = 0;
 
@@ -4741,8 +4807,6 @@ function processTweetEmbed(embedContainer) {
                             return;
                         }
                         if (data.html) {
-                            tweetCache[cacheKey] = data.html;
-                            localStorage.setItem('otk-tweet-cache', JSON.stringify(tweetCache));
                             renderTweet(data.html);
                         } else {
                             embedContainer.textContent = "[Tweet not found]";
@@ -4772,18 +4836,18 @@ function processTweetEmbed(embedContainer) {
         fetchTweet();
     };
 
-    // Logic to load the widgets.js script if not present
-    if (window.twttr && window.twttr.ready) {
-        window.twttr.ready(processTweet);
+    if (window.twttr && window.twttr.widgets && typeof window.twttr.widgets.load === 'function') {
+        window.twttr.widgets.load(embedContainer);
     } else {
         const script = document.createElement("script");
         script.src = "https://platform.twitter.com/widgets.js";
         script.async = true;
         script.onload = () => {
             if (window.twttr && window.twttr.ready) {
-                window.twttr.ready(processTweet);
+                window.twttr.ready(() => {
+                    window.twttr.widgets.load(embedContainer);
+                });
             } else {
-                // Fallback for immediate execution if ready event doesn't fire
                 processTweet();
             }
         };
@@ -4797,14 +4861,7 @@ function handleIntersection(entries, observerInstance) {
         const wrapper = entry.target;
         const iframe = wrapper.querySelector('iframe');
 
-        if (wrapper.dataset.tweetId) { // Handle Tweet embeds
-            if (entry.isIntersecting) {
-                console.log(`[LazyLoad] Tweet ${wrapper.dataset.tweetId} is intersecting, processing.`);
-                processTweetEmbed(wrapper);
-                // Once processed, we don't need to observe it anymore.
-                observerInstance.unobserve(wrapper);
-            }
-        } else if (iframe) { // Handle video embeds
+        if (iframe) { // Handle video embeds
             if (entry.isIntersecting) {
                 // Element is now visible
                 if (iframe.dataset.src && (!iframe.src || iframe.src === 'about:blank')) {
@@ -4813,8 +4870,7 @@ function handleIntersection(entries, observerInstance) {
                 }
             } else {
                 // Element is no longer visible
-                const unloadEnabled = localStorage.getItem('otkUnloadVideos') === 'true';
-                if (unloadEnabled && iframe.src && iframe.src !== 'about:blank') {
+                if (iframe.src && iframe.src !== 'about:blank') {
                     console.log('[LazyLoad] Iframe is no longer intersecting, unloading src:', iframe.src);
                     if (iframe.contentWindow && iframe.src.includes("youtube.com/embed")) {
                         try {
@@ -4824,6 +4880,22 @@ function handleIntersection(entries, observerInstance) {
                         }
                     }
                     iframe.src = 'about:blank';
+
+                    if (wrapper.classList.contains('otk-twitch-embed-wrapper')) {
+                        const placeholder = document.createElement('div');
+                        placeholder.textContent = 'Twitch embed hidden. Scroll to load.';
+                        placeholder.style.cssText = `
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            width: 100%;
+                            height: 100%;
+                            background-color: #181818;
+                            color: white;
+                            font-size: 14px;
+                        `;
+                        wrapper.appendChild(placeholder);
+                    }
                 }
             }
         }
@@ -4889,29 +4961,15 @@ function saveThemeSetting(key, value, requiresRerender = false) {
 }
 
 async function applyMainTheme() {
-    const mainThemeJSON = await GM.getValue(MAIN_THEME_KEY, null);
-
-    if (typeof mainThemeJSON === 'string') {
-        consoleLog("Applying main theme from GM storage.");
-        try {
-            const mainThemeSettings = JSON.parse(mainThemeJSON);
-            let currentSettings = {};
-            try {
-                currentSettings = JSON.parse(localStorage.getItem(THEME_SETTINGS_KEY)) || {};
-            } catch (e) {
-                consoleWarn("Could not parse current theme settings, will overwrite with main theme.", e);
-            }
-
-            // Merge main theme settings into current settings, overwriting any conflicts
-            const newSettings = { ...currentSettings, ...mainThemeSettings };
-
-            localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(newSettings));
-            consoleLog("Main theme settings merged and applied to active theme.");
-        } catch (e) {
-            consoleError("Error parsing or applying main theme from GM storage:", e);
+    const selectedThemeName = await GM.getValue(MAIN_THEME_KEY);
+    if (selectedThemeName) {
+        const savedThemes = await GM.getValue('otkSavedThemes') || {};
+        if (savedThemes[selectedThemeName]) {
+            localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(savedThemes[selectedThemeName]));
+            consoleLog(`[Theme] Loaded saved theme "${selectedThemeName}" into localStorage.`);
+        } else {
+            consoleWarn(`[Theme] Theme "${selectedThemeName}" not found in GM storage.`);
         }
-    } else {
-        consoleWarn("No main theme found in GM storage or it's not a string.");
     }
 }
 
@@ -5409,6 +5467,38 @@ function setupOptionsWindow() {
     debugToggleGroup.appendChild(debugToggleControlsWrapper);
     generalSettingsSection.appendChild(debugToggleGroup);
 
+    // --- Memory Usage Report ---
+    const memoryReportGroup = document.createElement('div');
+    memoryReportGroup.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 5px;";
+
+    const memoryReportLabel = document.createElement('label');
+    memoryReportLabel.textContent = "Enable Memory Usage Report:";
+    memoryReportLabel.htmlFor = 'otk-memory-report-checkbox';
+    memoryReportLabel.style.cssText = "font-size: 12px; text-align: left; flex-basis: 230px; flex-shrink: 0;";
+
+    const memoryReportControlsWrapper = document.createElement('div');
+    memoryReportControlsWrapper.style.cssText = "display: flex; flex-grow: 1; align-items: center; gap: 8px; min-width: 0; justify-content: flex-end;";
+
+    const memoryReportCheckbox = document.createElement('input');
+    memoryReportCheckbox.type = 'checkbox';
+    memoryReportCheckbox.id = 'otk-memory-report-checkbox';
+    memoryReportCheckbox.style.cssText = "height: 16px; width: 16px;";
+    memoryReportCheckbox.checked = localStorage.getItem('otkMemoryReportEnabled') === 'true';
+
+    memoryReportCheckbox.addEventListener('change', () => {
+        const isEnabled = memoryReportCheckbox.checked;
+        localStorage.setItem('otkMemoryReportEnabled', isEnabled);
+        const memoryReportButton = document.getElementById('otk-memory-report-btn');
+        if (memoryReportButton) {
+            memoryReportButton.style.display = isEnabled ? 'inline-block' : 'none';
+        }
+    });
+
+    memoryReportControlsWrapper.appendChild(memoryReportCheckbox);
+    memoryReportGroup.appendChild(memoryReportLabel);
+    memoryReportGroup.appendChild(memoryReportControlsWrapper);
+    generalSettingsSection.appendChild(memoryReportGroup);
+
 
     // --- Theme/Appearance Section ---
     // This section will now be added after the general settings.
@@ -5781,6 +5871,8 @@ function setupOptionsWindow() {
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Background Updates Stats Text:", storageKey: 'backgroundUpdatesStatsTextColor', cssVariable: '--otk-background-updates-stats-text-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'background-updates-stats-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Cog Icon:", storageKey: 'cogIconColor', cssVariable: '--otk-cog-icon-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'cog-icon' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Disable Background Update Text:", storageKey: 'disableBgFontColor', cssVariable: '--otk-disable-bg-font-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'disable-bg-font' }));
+    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Timer Text:", storageKey: 'countdownTextColor', cssVariable: '--otk-countdown-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'countdown-text' }));
+    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Separator:", storageKey: 'separatorColor', cssVariable: '--otk-separator-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'separator' }));
 
     // Sub-section for GUI Buttons
     const guiButtonsSubHeading = document.createElement('h6');
@@ -5932,12 +6024,9 @@ function setupOptionsWindow() {
     themeOptionsContainer.appendChild(tweetEmbedModeGroup);
 
     themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load YouTube Embeds:", storageKey: 'otkLazyLoadYouTube', defaultValue: true, idSuffix: 'lazy-load-youtube', requiresRerender: true }));
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load Twitch Embeds:", storageKey: 'otkLazyLoadTwitch', defaultValue: true, idSuffix: 'lazy-load-twitch', requiresRerender: true }));
     themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load Streamable Embeds:", storageKey: 'otkLazyLoadStreamable', defaultValue: true, idSuffix: 'lazy-load-streamable', requiresRerender: true }));
     themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load TikTok Embeds:", storageKey: 'otkLazyLoadTikTok', defaultValue: true, idSuffix: 'lazy-load-tiktok', requiresRerender: true }));
     themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load Kick Clips:", storageKey: 'otkLazyLoadKick', defaultValue: true, idSuffix: 'lazy-load-kick', requiresRerender: true }));
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Unload Videos When Scrolled Past:", storageKey: 'otkUnloadVideos', defaultValue: true, idSuffix: 'unload-videos', requiresRerender: true }));
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Disable Tweet Caching:", storageKey: 'otkDisableTweetCaching', defaultValue: false, idSuffix: 'disable-tweet-caching', requiresRerender: true }));
 
     // --- Message Limiting Feature ---
     const messageLimitGroup = document.createElement('div');
@@ -6197,9 +6286,9 @@ function setupOptionsWindow() {
 
     customThemesDropdown.addEventListener('change', () => {
         const selectedValue = customThemesDropdown.value;
-        let customThemes = [];
+        let customThemes = {};
         try {
-            customThemes = JSON.parse(localStorage.getItem(CUSTOM_THEMES_KEY)) || [];
+            customThemes = JSON.parse(localStorage.getItem(CUSTOM_THEMES_KEY)) || {};
         } catch (e) {
             consoleError("Error parsing custom themes from localStorage:", e);
         }
@@ -6209,119 +6298,65 @@ function setupOptionsWindow() {
                 consoleLog("[PreviewTheme] Reverting to pre-preview settings.");
                 localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(prePreviewSettings));
                 applyThemeSettings();
-                // prePreviewSettings = null; // Clear after reverting, or keep if user might toggle back and forth? Let's clear.
                 currentlyPreviewingThemeName = null;
             } else {
-                // This case means "Active Settings" was selected but nothing was previewed yet,
-                // or it was re-selected after a load. Ensure current active settings are applied.
                 consoleLog("[PreviewTheme] 'Active Settings' selected. Ensuring current active settings are applied.");
                 const activeSettings = JSON.parse(localStorage.getItem(THEME_SETTINGS_KEY)) || {};
-                localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(activeSettings)); // Re-affirm
+                localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(activeSettings));
                 applyThemeSettings();
                 currentlyPreviewingThemeName = null;
             }
-        } else { // A custom theme is selected for preview
-            const themeToPreview = customThemes.find(t => t.name === selectedValue);
+        } else {
+            const themeToPreview = customThemes[selectedValue];
             if (themeToPreview) {
-                if (currentlyPreviewingThemeName === null) { // Only store pre-preview if not already previewing
-                    // Store current *active* settings (from THEME_SETTINGS_KEY) before applying preview
+                if (currentlyPreviewingThemeName === null) {
                     prePreviewSettings = JSON.parse(localStorage.getItem(THEME_SETTINGS_KEY)) || {};
                     consoleLog("[PreviewTheme] Stored pre-preview settings:", JSON.parse(JSON.stringify(prePreviewSettings)));
                 }
-
-                consoleLog(`[PreviewTheme] Previewing theme "${selectedValue}". Settings:`, JSON.parse(JSON.stringify(themeToPreview.settings)));
-                // Apply theme settings for preview WITHOUT saving to THEME_SETTINGS_KEY yet.
-                // applyThemeSettings directly uses THEME_SETTINGS_KEY, so we need a way to apply settings without permanently saving them.
-                // Option 1: Modify applyThemeSettings to take an optional settings object.
-                // Option 2: Temporarily set THEME_SETTINGS_KEY, apply, then restore if needed (more complex).
-                // Let's go with Option 1. (This will require modifying applyThemeSettings later)
-
-                // For now, let's simulate by updating CSS vars and inputs directly from themeToPreview.settings
-                // This is a temporary approach until applyThemeSettings is refactored.
-                // This will be complex to do manually here.
-                //
-                // Revised approach for preview:
-                // 1. Store current active settings (from THEME_SETTINGS_KEY) into prePreviewSettings (if not already previewing).
-                // 2. Temporarily set THEME_SETTINGS_KEY to the preview theme's settings.
-                // 3. Call applyThemeSettings(). This will make the preview active.
-                // 4. The "Load" button will make this temporary state permanent.
-                // 5. Selecting "__REVERT__" will restore THEME_SETTINGS_KEY from prePreviewSettings and call applyThemeSettings().
-
-                localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(themeToPreview.settings)); // Temporarily set for applyThemeSettings
+                consoleLog(`[PreviewTheme] Previewing theme "${selectedValue}". Settings:`, JSON.parse(JSON.stringify(themeToPreview)));
+                localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(themeToPreview));
                 applyThemeSettings();
                 currentlyPreviewingThemeName = selectedValue;
             }
         }
     });
 
-    loadThemeButton.addEventListener('click', () => {
-        const selectedThemeName = customThemesDropdown.value;
-
-        if (selectedThemeName === "__REVERT__" || !selectedThemeName || (customThemesDropdown.selectedOptions[0] && customThemesDropdown.selectedOptions[0].disabled)) {
-            alert("Please select a valid custom theme to load.");
-            return;
-        }
-
-        let customThemes = [];
-        try {
-            customThemes = JSON.parse(localStorage.getItem(CUSTOM_THEMES_KEY)) || [];
-        } catch (e) {
-            consoleError("Error parsing custom themes from localStorage:", e);
-        }
-        const themeToLoad = customThemes.find(t => t.name === selectedThemeName);
-
-        if (!themeToLoad) {
-            alert(`Error: Could not find the theme "${selectedThemeName}" to load.`);
-            return;
-        }
-
-        consoleLog(`Loading custom theme: "${selectedThemeName}"`);
-
-        // 1. Reset all theme settings to their base defaults first.
-        resetAllThemeSettingsToDefault(false); // Pass false to prevent confirmation prompt
-
-        // 2. Set the new theme's settings into the active settings key.
-        localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(themeToLoad.settings));
-
-        // 3. Apply the newly loaded settings.
-        applyThemeSettings();
-
-        // 4. Clear any preview-related state.
-        prePreviewSettings = null;
-        currentlyPreviewingThemeName = null;
-        customThemesDropdown.value = "__REVERT__"; // Set dropdown to show "Active Settings"
-
-        alert(`Theme "${selectedThemeName}" loaded successfully.`);
-    });
+        loadThemeButton.addEventListener('click', () => {
+            const selectedValue = customThemesDropdown.value;
+            if (selectedValue && selectedValue !== '__REVERT__') {
+                const themeToLoad = customThemes[selectedValue];
+                if (themeToLoad) {
+                    consoleLog(`[LoadTheme] Loading theme "${selectedValue}" and making it active.`);
+                    localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(themeToLoad));
+                    applyThemeSettings(); // Apply and save
+                    prePreviewSettings = null; // Clear pre-preview settings
+                    currentlyPreviewingThemeName = null;
+                    customThemesDropdown.value = '__REVERT__'; // Reset dropdown to the placeholder
+                    alert(`Theme "${selectedValue}" loaded and saved as active.`);
+                }
+            } else {
+                alert("Please select a theme to load.");
+            }
+        });
 
     deleteThemeButton.addEventListener('click', () => {
-        const selectedThemeName = customThemesDropdown.value;
-        if (!selectedThemeName || customThemesDropdown.selectedOptions.length === 0 || customThemesDropdown.selectedOptions[0].disabled) {
+        const selectedValue = customThemesDropdown.value;
+        if (selectedValue && selectedValue !== '__REVERT__') {
+            if (confirm(`Are you sure you want to delete the theme "${selectedValue}"?`)) {
+                let customThemes = {};
+                try {
+                    customThemes = JSON.parse(localStorage.getItem(CUSTOM_THEMES_KEY)) || {};
+                } catch (e) {
+                    consoleError("Error parsing custom themes from localStorage:", e);
+                }
+                delete customThemes[selectedValue];
+                localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(customThemes));
+                populateCustomThemesDropdown();
+                alert(`Theme "${selectedValue}" deleted.`);
+            }
+        } else {
             alert("Please select a theme to delete.");
-            return;
         }
-
-        if (!confirm(`Are you sure you want to delete the theme "${selectedThemeName}"? This action cannot be undone.`)) {
-            return;
-        }
-
-        let customThemes = [];
-        try {
-            customThemes = JSON.parse(localStorage.getItem(CUSTOM_THEMES_KEY)) || [];
-        } catch (e) {
-            consoleError("Error parsing custom themes from localStorage:", e);
-        }
-        const updatedThemes = customThemes.filter(t => t.name !== selectedThemeName);
-
-        if (customThemes.length === updatedThemes.length) {
-            alert(`Error: Theme "${selectedThemeName}" not found for deletion.`); // Should not happen if selected from dropdown
-            return;
-        }
-
-        localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(updatedThemes));
-        populateCustomThemesDropdown(); // Refresh the dropdown
-        alert(`Theme "${selectedThemeName}" deleted successfully!`);
-        consoleLog(`Custom theme "${selectedThemeName}" deleted.`);
     });
 
 
@@ -6394,6 +6429,8 @@ function setupOptionsWindow() {
             { storageKey: 'viewerQuote2plusHeaderBorderColor', cssVariable: '--otk-viewer-quote2plus-header-border-color', defaultValue: '#2a2a2a', inputType: 'color', idSuffix: 'viewer-quote2plus-border' },
             { storageKey: 'cogIconColor', cssVariable: '--otk-cog-icon-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'cog-icon' },
             { storageKey: 'disableBgFontColor', cssVariable: '--otk-disable-bg-font-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'disable-bg-font' },
+            { storageKey: 'countdownTextColor', cssVariable: '--otk-countdown-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'countdown-text' },
+            { storageKey: 'separatorColor', cssVariable: '--otk-separator-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'separator' },
             { storageKey: 'optionsTextColor', cssVariable: '--otk-options-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'options-text' },
             { storageKey: 'newMessagesDividerColor', cssVariable: '--otk-new-messages-divider-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'new-msg-divider' },
             { storageKey: 'newMessagesFontColor', cssVariable: '--otk-new-messages-font-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'new-msg-font' },
@@ -6880,5 +6917,73 @@ async function main() {
             showSuspendedScreen();
         }, suspendAfterInactiveMinutes * 60 * 1000);
     });
+
+    async function generateMemoryUsageReport() {
+        showLoadingScreen("Generating memory usage report...");
+
+        let report = "--- Memory Usage Report ---\\n\\n";
+
+        // 1. `messagesByThreadId`
+        try {
+            const messagesSize = new TextEncoder().encode(JSON.stringify(messagesByThreadId)).length;
+            report += `messagesByThreadId Size: ${(messagesSize / 1024 / 1024).toFixed(2)} MB\\n`;
+        } catch (e) {
+            report += `messagesByThreadId Size: Error calculating size\\n`;
+        }
+
+        // 2. IndexedDB
+        if (otkMediaDB) {
+            try {
+                const transaction = otkMediaDB.transaction(['mediaStore'], 'readonly');
+                const store = transaction.objectStore('mediaStore');
+                const request = store.openCursor();
+                let dbSize = 0;
+                await new Promise((resolve, reject) => {
+                    request.onsuccess = (event) => {
+                        const cursor = event.target.result;
+                        if (cursor) {
+                            dbSize += cursor.value.blob.size;
+                            cursor.continue();
+                        } else {
+                            resolve();
+                        }
+                    };
+                    request.onerror = (event) => {
+                        reject(event.target.error);
+                    };
+                });
+                report += `IndexedDB (mediaStore) Size: ${(dbSize / 1024 / 1024).toFixed(2)} MB\\n`;
+                consoleLog(`[Memory Report] IndexedDB (mediaStore) Size: ${(dbSize / 1024 / 1024).toFixed(2)} MB`);
+            } catch (e) {
+                report += `IndexedDB (mediaStore) Size: Error calculating size\\n`;
+            }
+        } else {
+            report += `IndexedDB (mediaStore) Size: Not available\\n`;
+        }
+
+        // 3. `tweetCache`
+        try {
+            const tweetCacheSize = new TextEncoder().encode(JSON.stringify(tweetCache)).length;
+            report += `tweetCache Size: ${(tweetCacheSize / 1024).toFixed(2)} KB\\n`;
+        } catch (e) {
+            report += `tweetCache Size: Error calculating size\\n`;
+        }
+
+        // 4. `createdBlobUrls`
+        report += `Created Blob URLs: ${createdBlobUrls.size}\\n`;
+
+        // 5. Other data structures
+        report += `\\n--- Other Data Structures ---\\n`;
+        report += `activeThreads: ${activeThreads.length} items\\n`;
+        report += `renderedMessageIdsInViewer: ${renderedMessageIdsInViewer.size} items\\n`;
+        report += `uniqueImageViewerHashes: ${uniqueImageViewerHashes.size} items\\n`;
+        report += `viewerTopLevelAttachedVideoHashes: ${viewerTopLevelAttachedVideoHashes.size} items\\n`;
+        report += `viewerTopLevelEmbedIds: ${viewerTopLevelEmbedIds.size} items\\n`;
+
+        hideLoadingScreen();
+
+        const reportWindow = window.open("", "Memory Report", "width=600,height=400");
+        reportWindow.document.write('<pre>' + report + '</pre>');
+    }
 
 })();
