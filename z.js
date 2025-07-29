@@ -439,25 +439,27 @@ function createTwitchEmbedElement(type, id, timestampStr) {
     // Universal fixed size for all embeds
     wrapper.style.width = '480px';
     wrapper.style.height = '270px'; // 16:9 aspect ratio for 480px width
+    wrapper.dataset.embedUrl = embedUrl;
 
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'absolute';
-    iframe.style.top = '0';
-    iframe.style.left = '0';
-    iframe.style.width = '100%';
-    iframe.style.height = '100%';
-    iframe.setAttribute('frameborder', '0');
-    iframe.setAttribute('allowfullscreen', 'true');
-    iframe.setAttribute('scrolling', 'no');
+    const placeholder = document.createElement('div');
+    placeholder.textContent = 'Twitch embed hidden. Scroll to load.';
+    placeholder.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        background-color: #181818;
+        color: white;
+        font-size: 14px;
+    `;
+    wrapper.appendChild(placeholder);
 
-    iframe.dataset.src = embedUrl;
     if (mediaIntersectionObserver) {
         mediaIntersectionObserver.observe(wrapper);
     } else {
-        consoleWarn("[LazyLoad] mediaIntersectionObserver not ready. Iframe will load immediately:", iframe.dataset.src);
+        consoleWarn("[LazyLoad] mediaIntersectionObserver not ready. Twitch embed will not lazy load.");
     }
-
-    wrapper.appendChild(iframe);
 
     return wrapper;
 }
@@ -606,7 +608,7 @@ function createTweetEmbedElement(tweetId) {
     const embedContainer = document.createElement('div');
     embedContainer.className = 'otk-tweet-embed-wrapper';
     embedContainer.dataset.tweetId = tweetId;
-    embedContainer.style.display = 'inline-block';
+    embedContainer.style.display = 'block';
     embedContainer.style.minHeight = '100px';
 
     processTweetEmbed(embedContainer);
@@ -1902,6 +1904,7 @@ function _populateAttachmentDivWithMedia(
         attachmentDiv.appendChild(videoElement);
 
         const webVideoSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}${extLower.startsWith('.') ? extLower : '.' + extLower}`;
+        videoElement.src = webVideoSrc;
 
         const loadFromWeb = () => {
             mediaLoadPromises.push(new Promise((resolve, reject) => {
@@ -2017,13 +2020,13 @@ function _populateAttachmentDivWithMedia(
         const twitchPatterns = [
             { type: 'clip_direct', regex: /^(?:https?:\/\/)?clips\.twitch\.tv\/([a-zA-Z0-9_-]+)(?:[?&%#\w\-=\.\/;:]*)?$/, idGroup: 1 },
             { type: 'clip_channel', regex: /^(?:https?:\/\/)?(?:www\.)?twitch\.tv\/[a-zA-Z0-9_]+\/clip\/([a-zA-Z0-9_-]+)(?:[?&%#\w\-=\.\/;:]*)?$/, idGroup: 1 },
-            { type: 'vod', regex: /^(?:https?:\/\/)?(?:www\.)?twitch\.tv\/videos\/(\d+)(?:[?&%#\w\-=\.\/;:]*)?$/, idGroup: 1 }
+            { type: 'vod', regex: /^(?:https?:\/\/)?(?:www\.)?twitch\.tv\/(?:videos|v)\/(\d+)(?:[?&%#\w\-=\.\/;:]*)?$/, idGroup: 1 }
         ];
         const twitchTimestampRegex = /[?&]t=((?:\d+h)?(?:\d+m)?(?:\d+s)?)/;
         const inlineTwitchPatterns = [
             { type: 'clip_direct', regex: /(?:https?:\/\/)?clips\.twitch\.tv\/([a-zA-Z0-9_-]+)(?:[?&%#\w\-=\.\/;:]*)?/, idGroup: 1 },
             { type: 'clip_channel', regex: /(?:https?:\/\/)?(?:www\.)?twitch\.tv\/[a-zA-Z0-9_]+\/clip\/([a-zA-Z0-9_-]+)(?:[?&%#\w\-=\.\/;:]*)?/, idGroup: 1 },
-            { type: 'vod', regex: /(?:https?:\/\/)?(?:www\.)?twitch\.tv\/videos\/(\d+)(?:[?&%#\w\-=\.\/;:]*)?/, idGroup: 1 }
+            { type: 'vod', regex: /(?:https?:\/\/)?(?:www\.)?twitch\.tv\/(?:videos|v)\/(\d+)(?:[?&%#\w\-=\.\/;:]*)?/, idGroup: 1 }
         ];
 
         const streamablePatterns = [
@@ -4248,6 +4251,7 @@ function _populateAttachmentDivWithMedia(
             top: 86px;
             left: 0;
             width: 100vw;
+            height: calc(100vh - 86px);
             bottom: 0;
             /* background-color: #181818; */ /* New background color - replaced by variable below */
             opacity: 1; /* Ensure full opacity */
@@ -4739,6 +4743,7 @@ function startAutoEmbedReloader() {
     }, 5000); // Check every 5 seconds
 }
 
+
 function startTweetEmbedBackupSystem() {
     setInterval(() => {
         if (!otkViewer || otkViewer.style.display === 'none' || !window.twttr || !window.twttr.widgets) {
@@ -4753,150 +4758,151 @@ function startTweetEmbedBackupSystem() {
                 window.twttr.widgets.load(embed);
             }
         });
-    }, 10000); // Check every 10 seconds
+    }, 1200000); // Check every 20 minutes
 }
 
+
+function onTwitterWidgetsReady(callback) {
+  if (window.twttr && twttr.widgets) {
+    callback();
+  } else {
+    const interval = setInterval(() => {
+      if (window.twttr && twttr.widgets) {
+        clearInterval(interval);
+        callback();
+      }
+    }, 100);
+  }
+}
 
 function processTweetEmbed(embedContainer) {
     const tweetId = embedContainer.dataset.tweetId;
     if (!tweetId || embedContainer.dataset.processed === 'true') {
-        return; // Don't process if no ID or already processed
+        return;
     }
 
     const embedMode = localStorage.getItem('otk-tweet-embed-mode') || 'default';
 
-    const processTweet = () => {
-        const renderTweet = (html) => {
-            embedContainer.innerHTML = html;
-            if (window.twttr && window.twttr.widgets) {
-                setTimeout(() => {
-                    try {
-                        window.twttr.widgets.load(embedContainer);
-                    } catch (e) {
-                        consoleError("Error executing twttr.widgets.load:", e);
-                    }
-                }, 0);
-            }
-            embedContainer.dataset.processed = 'true';
-        };
-
-        const embedUrl = `https://publish.x.com/oembed?url=https://twitter.com/any/status/${tweetId}&theme=${embedMode}`;
-        const maxRetries = 3;
-        let attempt = 0;
-
-        function fetchTweet() {
-            GM_xmlhttpRequest({
-                method: "GET",
-                url: embedUrl,
-                onload: function(response) {
-                    try {
-                        let data;
-                        try {
-                            data = JSON.parse(response.responseText);
-                        } catch (e) {
-                            if (attempt < maxRetries) {
-                                attempt++;
-                                const delay = Math.pow(2, attempt) * 1000;
-                                consoleWarn(`Failed to parse tweet JSON, retrying in ${delay}ms...`);
-                                setTimeout(fetchTweet, delay);
-                            } else {
-                                consoleError("Error parsing tweet embed JSON after max retries", e);
-                                embedContainer.textContent = "[Tweet parse error]";
-                                embedContainer.dataset.processed = 'true';
-                            }
-                            return;
-                        }
-                        if (data.html) {
-                            renderTweet(data.html);
-                        } else {
-                            embedContainer.textContent = "[Tweet not found]";
-                            embedContainer.dataset.processed = 'true';
-                        }
-                    } catch (e) {
-                        embedContainer.textContent = "[Tweet parse error]";
-                        embedContainer.dataset.processed = 'true';
-                        consoleError("Error parsing tweet embed JSON", e);
-                    }
-                },
-                onerror: function(err) {
-                    if (attempt < maxRetries) {
-                        attempt++;
-                        const delay = Math.pow(2, attempt) * 1000;
-                        consoleWarn(`Failed to fetch tweet, retrying in ${delay}ms...`);
-                        setTimeout(fetchTweet, delay);
-                    } else {
-                        consoleError("Error loading tweet embed after max retries:", err);
-                        embedContainer.textContent = "[Tweet fetch error]";
-                        embedContainer.dataset.processed = 'true';
-                    }
-                }
-            });
-        }
-
-        fetchTweet();
+    const renderTweet = (html) => {
+        embedContainer.innerHTML = html;
+        onTwitterWidgetsReady(() => {
+            twttr.widgets.load(embedContainer);
+        });
+        embedContainer.dataset.processed = 'true';
     };
 
-    if (window.twttr && window.twttr.widgets && typeof window.twttr.widgets.load === 'function') {
-        window.twttr.widgets.load(embedContainer);
-    } else {
-        const script = document.createElement("script");
-        script.src = "https://platform.twitter.com/widgets.js";
-        script.async = true;
-        script.onload = () => {
-            if (window.twttr && window.twttr.ready) {
-                window.twttr.ready(() => {
-                    window.twttr.widgets.load(embedContainer);
-                });
-            } else {
-                processTweet();
+    const embedUrl = `https://publish.x.com/oembed?url=https://twitter.com/any/status/${tweetId}&theme=${embedMode}`;
+
+    GM_xmlhttpRequest({
+        method: "GET",
+        url: embedUrl,
+        onload: function(response) {
+            try {
+                const data = JSON.parse(response.responseText);
+                if (data.html) {
+                    renderTweet(data.html);
+                } else {
+                    embedContainer.textContent = "[Tweet not found]";
+                    embedContainer.dataset.processed = 'true';
+                }
+            } catch (e) {
+                embedContainer.textContent = "[Tweet parse error]";
+                embedContainer.dataset.processed = 'true';
+                consoleError("Error parsing tweet embed JSON", e);
             }
-        };
-        document.head.appendChild(script);
-    }
+        },
+        onerror: function(err) {
+            consoleError("Error loading tweet embed:", err);
+            embedContainer.textContent = "[Tweet fetch error]";
+            embedContainer.dataset.processed = 'true';
+        }
+    });
 }
 
 // --- IIFE Scope Helper for Intersection Observer ---
 function handleIntersection(entries, observerInstance) {
     entries.forEach(entry => {
         const wrapper = entry.target;
-        const iframe = wrapper.querySelector('iframe');
+        let iframe = wrapper.querySelector('iframe');
 
-        if (iframe) { // Handle video embeds
-            if (entry.isIntersecting) {
-                // Element is now visible
-                if (iframe.dataset.src && (!iframe.src || iframe.src === 'about:blank')) {
-                    console.log('[LazyLoad] Iframe is intersecting, loading src:', iframe.dataset.src);
-                    iframe.src = iframe.dataset.src;
+        if (entry.isIntersecting) {
+            // Element is now visible
+            if (!iframe) {
+                // If the iframe was removed, recreate it
+                const newIframe = document.createElement('iframe');
+                // Copy attributes from a template or stored config if necessary
+                // For now, assuming basic recreation is enough
+                newIframe.style.position = 'absolute';
+                newIframe.style.top = '0';
+                newIframe.style.left = '0';
+                newIframe.style.width = '100%';
+                newIframe.style.height = '100%';
+                newIframe.setAttribute('frameborder', '0');
+                newIframe.setAttribute('allowfullscreen', 'true');
+                if (wrapper.classList.contains('otk-twitch-embed-wrapper')) {
+                    newIframe.setAttribute('scrolling', 'no');
+                } else if (wrapper.classList.contains('otk-youtube-embed-wrapper')) {
+                    newIframe.setAttribute('allow', 'accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
                 }
-            } else {
-                // Element is no longer visible
-                if (iframe.src && iframe.src !== 'about:blank') {
-                    console.log('[LazyLoad] Iframe is no longer intersecting, unloading src:', iframe.src);
-                    if (iframe.contentWindow && iframe.src.includes("youtube.com/embed")) {
-                        try {
-                            iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', 'https://www.youtube.com');
-                        } catch (e) {
-                            consoleWarn('[LazyLoad] Error attempting to postMessage pause to YouTube:', e);
-                        }
-                    }
-                    iframe.src = 'about:blank';
+                newIframe.dataset.src = wrapper.dataset.embedUrl;
+                wrapper.innerHTML = '';
+    if (window.twttr?.widgets?.load) {
+        twttr.widgets.load(wrapper);
+    } // Clear placeholder
+                wrapper.appendChild(newIframe);
+                iframe = newIframe;
+            }
 
-                    if (wrapper.classList.contains('otk-twitch-embed-wrapper')) {
-                        const placeholder = document.createElement('div');
-                        placeholder.textContent = 'Twitch embed hidden. Scroll to load.';
-                        placeholder.style.cssText = `
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            width: 100%;
-                            height: 100%;
-                            background-color: #181818;
-                            color: white;
-                            font-size: 14px;
-                        `;
-                        wrapper.appendChild(placeholder);
+            if (iframe && iframe.dataset.src && (!iframe.src || iframe.src === 'about:blank')) {
+                console.log('[LazyLoad] Iframe is intersecting, loading src:', iframe.dataset.src);
+                iframe.src = iframe.dataset.src;
+            }
+            observerInstance.unobserve(wrapper);
+        } else {
+            // Element is no longer visible
+            if (wrapper.classList.contains('otk-tweet-embed-wrapper')) {
+                return; // Do not unload tweet embeds
+            }
+
+            if (iframe && iframe.src && iframe.src !== 'about:blank') {
+                console.log('[LazyLoad] Iframe is no longer intersecting, removing iframe for:', iframe.src);
+
+                // For YouTube, try to pause the video before removing
+                if (iframe.contentWindow && iframe.src.includes("youtube.com/embed")) {
+                    try {
+                        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', 'https://www.youtube.com');
+                    } catch (e) {
+                        consoleWarn('[LazyLoad] Error attempting to postMessage pause to YouTube:', e);
+                    }
+                } else if (iframe.contentWindow && iframe.src.includes("twitch.tv")) {
+                    try {
+                        iframe.contentWindow.postMessage({"event": "video.pause"}, "*");
+                    } catch (e) {
+                        consoleWarn('[LazyLoad] Error attempting to postMessage pause to Twitch:', e);
                     }
                 }
+
+                // Store the embed URL on the wrapper if it's not already there
+                if (!wrapper.dataset.embedUrl) {
+                    wrapper.dataset.embedUrl = iframe.dataset.src;
+                }
+
+                // Remove the iframe and add a placeholder
+                iframe.remove();
+                const placeholder = document.createElement('div');
+                placeholder.textContent = 'Embed hidden. Scroll to load.';
+                placeholder.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 100%;
+                    height: 100%;
+                    background-color: #181818;
+                    color: white;
+                    font-size: 14px;
+                `;
+                wrapper.appendChild(placeholder);
+                observerInstance.observe(wrapper);
             }
         }
     });
@@ -4961,15 +4967,16 @@ function saveThemeSetting(key, value, requiresRerender = false) {
 }
 
 async function applyMainTheme() {
-    const selectedThemeName = await GM.getValue(MAIN_THEME_KEY);
-    if (selectedThemeName) {
-        const savedThemes = await GM.getValue('otkSavedThemes') || {};
-        if (savedThemes[selectedThemeName]) {
-            localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(savedThemes[selectedThemeName]));
-            consoleLog(`[Theme] Loaded saved theme "${selectedThemeName}" into localStorage.`);
+    try {
+        const mainThemeSettings = await GM.getValue(MAIN_THEME_KEY);
+        if (mainThemeSettings) {
+            localStorage.setItem(THEME_SETTINGS_KEY, mainThemeSettings);
+            consoleLog('[Theme] Loaded main theme from GM storage into localStorage.');
         } else {
-            consoleWarn(`[Theme] Theme "${selectedThemeName}" not found in GM storage.`);
+            consoleLog('[Theme] No main theme found in GM storage. Using localStorage default.');
         }
+    } catch (error) {
+        consoleError('[Theme] Error loading main theme from GM storage:', error);
     }
 }
 
@@ -6380,11 +6387,11 @@ function setupOptionsWindow() {
 
     themeOptionsContainer.appendChild(buttonWrapper);
 
-    setAsMainThemeButton.addEventListener('click', async () => { // Make async
+    setAsMainThemeButton.addEventListener('click', async () => {
         const currentSettings = localStorage.getItem(THEME_SETTINGS_KEY);
         if (currentSettings) {
             try {
-                await GM.setValue(MAIN_THEME_KEY, currentSettings); // Use await
+                await GM.setValue(MAIN_THEME_KEY, currentSettings);
                 alert("Current theme set as the main theme.");
                 consoleLog("Main theme saved to GM storage.");
             } catch (error) {
