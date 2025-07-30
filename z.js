@@ -4749,6 +4749,19 @@ function startAutoEmbedReloader() {
 }
 
 
+function loadTwitterWidgets() {
+    if (document.querySelector('script[src="https://platform.twitter.com/widgets.js"]')) {
+        consoleLog("Twitter widgets.js script already present.");
+        return;
+    }
+    consoleLog("Loading Twitter widgets.js script...");
+    const script = document.createElement('script');
+    script.src = "https://platform.twitter.com/widgets.js";
+    script.async = true;
+    script.charset = "utf-8";
+    document.head.appendChild(script);
+}
+
 function startTweetEmbedBackupSystem() {
     setInterval(() => {
         if (!otkViewer || otkViewer.style.display === 'none' || !window.twttr || !window.twttr.widgets) {
@@ -4767,19 +4780,6 @@ function startTweetEmbedBackupSystem() {
 }
 
 
-function onTwitterWidgetsReady(callback) {
-  if (window.twttr && twttr.widgets) {
-    callback();
-  } else {
-    const interval = setInterval(() => {
-      if (window.twttr && twttr.widgets) {
-        clearInterval(interval);
-        callback();
-      }
-    }, 100);
-  }
-}
-
 function processTweetEmbed(embedContainer) {
     const tweetId = embedContainer.dataset.tweetId;
     if (!tweetId || embedContainer.dataset.processed === 'true') {
@@ -4789,11 +4789,29 @@ function processTweetEmbed(embedContainer) {
     const embedMode = localStorage.getItem('otk-tweet-embed-mode') || 'default';
 
     const renderTweet = (html) => {
-        embedContainer.innerHTML = html;
-        onTwitterWidgetsReady(() => {
-            twttr.widgets.load(embedContainer);
-        });
-        embedContainer.dataset.processed = 'true';
+        // Parse the HTML to remove the script tag
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const script = doc.querySelector('script');
+        if (script) {
+            script.remove();
+        }
+        embedContainer.innerHTML = doc.body.innerHTML;
+
+        // Now, safely call the widgets.load
+        const tryRender = () => {
+            if (window.twttr && window.twttr.widgets && typeof window.twttr.widgets.load === 'function') {
+                try {
+                    window.twttr.widgets.load(embedContainer);
+                    embedContainer.dataset.processed = 'true';
+                } catch (e) {
+                    consoleError("Error calling twttr.widgets.load:", e);
+                }
+            } else {
+                setTimeout(tryRender, 100);
+            }
+        };
+        tryRender();
     };
 
     const embedUrl = `https://publish.x.com/oembed?url=https://twitter.com/any/status/${tweetId}&theme=${embedMode}`;
@@ -4828,6 +4846,9 @@ function processTweetEmbed(embedContainer) {
 function handleIntersection(entries, observerInstance) {
     entries.forEach(entry => {
         const wrapper = entry.target;
+        if (wrapper.classList.contains('otk-tweet-embed-wrapper')) {
+            return; // Do not process tweet embeds with the lazy loader
+        }
         let iframe = wrapper.querySelector('iframe');
 
         if (entry.isIntersecting) {
@@ -6896,6 +6917,7 @@ async function main() {
 
     startAutoEmbedReloader();
     startTweetEmbedBackupSystem();
+    loadTwitterWidgets();
 
     // Kick off the script using the main async function
     main().finally(() => {
