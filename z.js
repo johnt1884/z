@@ -1713,6 +1713,18 @@ consoleLog(`[StatsDebug] Unique image hashes for viewer: ${uniqueImageViewerHash
 // updateDisplayedStatistics(); // Refresh stats display -- MOVED TO AFTER PROMISES
 
         Promise.all(mediaLoadPromises).then(() => {
+            // START - Twitter Embed Fix
+            const tweetEmbeds = messagesContainer.querySelectorAll('.otk-tweet-embed-wrapper');
+            if (tweetEmbeds.length > 0) {
+                consoleLog(`[renderMessagesInViewer] Found ${tweetEmbeds.length} tweet embeds to process.`);
+                if (window.twttr && window.twttr.widgets && typeof window.twttr.widgets.load === 'function') {
+                    window.twttr.widgets.load(messagesContainer);
+                } else {
+                    consoleWarn("[renderMessagesInViewer] Twitter widget script not ready. Tweets may not embed.");
+                }
+            }
+            // END - Twitter Embed Fix
+
             embedWrappers.forEach(wrapper => mediaIntersectionObserver.observe(wrapper));
             consoleLog("All inline media load attempts complete.");
             updateLoadingProgress(95, "Finalizing view...");
@@ -3235,6 +3247,18 @@ function _populateAttachmentDivWithMedia(
         }
 
         messagesContainer.appendChild(newContentDiv);
+
+        // START - Twitter Embed Fix
+        const tweetEmbeds = newContentDiv.querySelectorAll('.otk-tweet-embed-wrapper');
+        if (tweetEmbeds.length > 0) {
+            consoleLog(`[appendNewMessagesToViewer] Found ${tweetEmbeds.length} new tweet embeds to process.`);
+            if (window.twttr && window.twttr.widgets && typeof window.twttr.widgets.load === 'function') {
+                window.twttr.widgets.load(newContentDiv);
+            } else {
+                consoleWarn("[appendNewMessagesToViewer] Twitter widget script not ready. New tweets may not embed.");
+            }
+        }
+        // END - Twitter Embed Fix
 
         if (messageLimitEnabled) {
             const messageElements = messagesContainer.querySelectorAll('.otk-message-container-main, .otk-message-container-quote-depth-1, .otk-message-container-quote-depth-2');
@@ -4802,8 +4826,14 @@ function processTweetEmbed(embedContainer) {
         const tryRender = () => {
             if (window.twttr && window.twttr.widgets && typeof window.twttr.widgets.load === 'function') {
                 try {
-                    window.twttr.widgets.load(embedContainer);
-                    embedContainer.dataset.processed = 'true';
+                    // Check if the element is in the document before loading
+                    if (document.body.contains(embedContainer)) {
+                        // window.twttr.widgets.load(embedContainer); // REMOVED
+                        embedContainer.dataset.processed = 'true';
+                        consoleLog(`[TweetEmbed] Successfully processed tweet ${tweetId}`);
+                    } else {
+                        consoleWarn(`[TweetEmbed] Attempted to load tweet ${tweetId} but it was not in the DOM.`);
+                    }
                 } catch (e) {
                     consoleError("Error calling twttr.widgets.load:", e);
                 }
