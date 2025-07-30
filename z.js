@@ -36,6 +36,7 @@
     const TWEET_EMBED_MODE_KEY = 'otkTweetEmbedMode'; // For tweet embed theme
     const TWEET_CACHE_KEY = 'otkTweetCache'; // For caching tweet HTML
     const MAIN_THEME_KEY = 'otkMainTheme';
+    const BLURRED_IMAGES_KEY = 'otkBlurredImages'; // For storing blurred image hashes
     const twitterPatterns = [
         { regex: /^(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/\w+\/status\/(\d+)/, idGroup: 1 }
     ];
@@ -1845,6 +1846,9 @@ function _populateAttachmentDivWithMedia(
 
         // --- SOLUTION END ---
 
+        const imageContainer = document.createElement('div');
+        imageContainer.className = 'otk-image-container';
+
         const img = document.createElement('img');
         img.dataset.filehash = filehash;
         img.dataset.thumbWidth = message.attachment.tn_w;
@@ -1905,7 +1909,51 @@ function _populateAttachmentDivWithMedia(
             setImageProperties(!currentlyThumbnail);
         });
 
-        attachmentDiv.appendChild(img);
+        const hideIcon = document.createElement('span');
+        hideIcon.className = 'otk-hide-image-icon';
+        hideIcon.innerHTML = '&#128065;'; // Eye icon
+        hideIcon.title = 'Click to blur/unblur this image';
+
+        let blurredImages = [];
+        try {
+            blurredImages = JSON.parse(localStorage.getItem(BLURRED_IMAGES_KEY)) || [];
+        } catch (e) {
+            consoleError("Error parsing blurred images from localStorage:", e);
+        }
+
+        const isBlurred = blurredImages.includes(filehash);
+        if (isBlurred) {
+            img.classList.add('otk-blurred-image');
+        }
+
+        hideIcon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let currentBlurred = [];
+            try {
+                currentBlurred = JSON.parse(localStorage.getItem(BLURRED_IMAGES_KEY)) || [];
+            } catch (e) {
+                consoleError("Error parsing blurred images from localStorage:", e);
+            }
+
+            const allInstances = document.querySelectorAll(`img[data-filehash="${filehash}"]`);
+            if (currentBlurred.includes(filehash)) {
+                // Un-blur
+                const index = currentBlurred.indexOf(filehash);
+                if (index > -1) {
+                    currentBlurred.splice(index, 1);
+                }
+                allInstances.forEach(instance => instance.classList.remove('otk-blurred-image'));
+            } else {
+                // Blur
+                currentBlurred.push(filehash);
+                allInstances.forEach(instance => instance.classList.add('otk-blurred-image'));
+            }
+            localStorage.setItem(BLURRED_IMAGES_KEY, JSON.stringify(currentBlurred));
+        });
+
+        imageContainer.appendChild(hideIcon);
+        imageContainer.appendChild(img);
+        attachmentDiv.appendChild(imageContainer);
 
     } else if (extLower.endsWith('webm') || extLower.endsWith('mp4')) {
         const videoElement = document.createElement('video');
@@ -6092,6 +6140,31 @@ function setupOptionsWindow() {
     const messageLimitGroup = document.createElement('div');
     messageLimitGroup.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 5px;";
 
+    const clearBlurredImagesButton = createTrackerButton('Clear Blurred Images', 'otk-clear-blurred-images-btn');
+    clearBlurredImagesButton.addEventListener('click', () => {
+        if (confirm("Are you sure you want to un-blur all images?")) {
+            localStorage.removeItem(BLURRED_IMAGES_KEY);
+            const allBlurred = document.querySelectorAll('.otk-blurred-image');
+            allBlurred.forEach(img => img.classList.remove('otk-blurred-image'));
+            alert("All images have been un-blurred.");
+        }
+    });
+    generalSettingsSection.appendChild(clearBlurredImagesButton);
+
+    const blurAmountGroup = createThemeOptionRow({
+        labelText: "Image Blur Amount (px):",
+        storageKey: 'otkImageBlurAmount',
+        cssVariable: '--otk-image-blur-amount',
+        defaultValue: '60',
+        inputType: 'number',
+        unit: 'px',
+        min: 1,
+        max: 100,
+        idSuffix: 'image-blur-amount'
+    });
+    generalSettingsSection.appendChild(blurAmountGroup);
+
+
     const messageLimitLabel = document.createElement('label');
     messageLimitLabel.textContent = "Limit Number of Messages:";
     messageLimitLabel.htmlFor = 'otk-message-limit-checkbox';
@@ -6876,6 +6949,31 @@ async function main() {
                 /* max-width and margins are now controlled by inline styles in createYouTubeEmbedElement */
                 /* This class can be used for other common styles for these embeds if needed */
             }
+
+        .otk-image-container {
+            position: relative;
+            display: inline-block;
+        }
+
+        .otk-hide-image-icon {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            cursor: pointer;
+            z-index: 10;
+            display: none;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 50%;
+            padding: 5px;
+        }
+
+        .otk-image-container:hover .otk-hide-image-icon {
+            display: block;
+        }
+
+        .otk-blurred-image {
+            filter: blur(var(--otk-image-blur-amount, 60px));
+        }
     `;
     document.head.appendChild(styleElement);
     consoleLog("Injected CSS for anchored messages.");
