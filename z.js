@@ -752,7 +752,7 @@ function createTweetEmbedElement(tweetId) {
             left: 0;
             width: 100vw;
             z-index: 9999;
-            border-bottom: 1px solid var(--otk-gui-bottom-border-color);
+            border-bottom: 4px solid var(--otk-gui-bottom-border-color);
             background: var(--otk-gui-bg-color);
             box-sizing: border-box;
         `;
@@ -812,6 +812,7 @@ function createTweetEmbedElement(tweetId) {
         const statsWrapper = document.createElement('div');
         statsWrapper.id = 'otk-stats-wrapper';
         statsWrapper.style.cssText = `
+            margin-bottom: 4px;
             display: flex;
             flex-direction: column;
             align-items: flex-start; /* Left-align title and stats */
