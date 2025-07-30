@@ -2772,6 +2772,10 @@ function _populateAttachmentDivWithMedia(
 
                 lines.forEach((line, lineIndex) => {
                     const trimmedLine = line.trim();
+                    const quoteMatch = trimmedLine.match(quoteRegex);
+                    if (quoteMatch && quoteMatch[0] === trimmedLine && currentDepth >= MAX_QUOTE_DEPTH) {
+                        return; // Skip this line entirely
+                    }
                     let processedAsEmbed = false;
 
                     // All pattern definitions have been moved to the top of createMessageElementDOM.
@@ -4971,7 +4975,8 @@ async function applyMainTheme() {
     try {
         const mainThemeSettings = await GM.getValue(MAIN_THEME_KEY);
         if (mainThemeSettings) {
-            localStorage.setItem(THEME_SETTINGS_KEY, mainThemeSettings);
+            const parsedSettings = JSON.parse(mainThemeSettings);
+            localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(parsedSettings));
             consoleLog('[Theme] Loaded main theme from GM storage into localStorage.');
         } else {
             consoleLog('[Theme] No main theme found in GM storage. Using localStorage default.');
@@ -5879,7 +5884,7 @@ function setupOptionsWindow() {
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Background Updates Stats Text:", storageKey: 'backgroundUpdatesStatsTextColor', cssVariable: '--otk-background-updates-stats-text-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'background-updates-stats-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Cog Icon:", storageKey: 'cogIconColor', cssVariable: '--otk-cog-icon-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'cog-icon' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Disable Background Update Text:", storageKey: 'disableBgFontColor', cssVariable: '--otk-disable-bg-font-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'disable-bg-font' }));
-    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Timer Text:", storageKey: 'countdownTextColor', cssVariable: '--otk-countdown-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'countdown-text' }));
+    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Timer Text:", storageKey: 'countdownTextColor', cssVariable: '--otk-countdown-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Separator:", storageKey: 'separatorColor', cssVariable: '--otk-separator-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'separator' }));
 
     // Sub-section for GUI Buttons
@@ -6031,10 +6036,6 @@ function setupOptionsWindow() {
     tweetEmbedModeGroup.appendChild(tweetEmbedModeControlsWrapper);
     themeOptionsContainer.appendChild(tweetEmbedModeGroup);
 
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load YouTube Embeds:", storageKey: 'otkLazyLoadYouTube', defaultValue: true, idSuffix: 'lazy-load-youtube', requiresRerender: true }));
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load Streamable Embeds:", storageKey: 'otkLazyLoadStreamable', defaultValue: true, idSuffix: 'lazy-load-streamable', requiresRerender: true }));
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load TikTok Embeds:", storageKey: 'otkLazyLoadTikTok', defaultValue: true, idSuffix: 'lazy-load-tiktok', requiresRerender: true }));
-    themeOptionsContainer.appendChild(createCheckboxOptionRow({ labelText: "Lazy Load Kick Clips:", storageKey: 'otkLazyLoadKick', defaultValue: true, idSuffix: 'lazy-load-kick', requiresRerender: true }));
 
     // --- Message Limiting Feature ---
     const messageLimitGroup = document.createElement('div');
