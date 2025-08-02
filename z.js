@@ -2953,7 +2953,7 @@ function _populateAttachmentDivWithMedia(
             } else { // Simplified header for quoted messages
                 messageHeader.style.justifyContent = 'flex-start'; // Align ID to the start
                 const idSpan = document.createElement('span');
-                idSpan.textContent = `>>${message.id}`; // Changed prefix for quoted messages
+                idSpan.textContent = ` >>${message.id}`; // Changed prefix for quoted messages
                 // Time and Date spans are intentionally omitted for quoted messages
                 messageHeader.appendChild(idSpan);
             }
