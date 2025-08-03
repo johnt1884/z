@@ -850,18 +850,6 @@ function createTweetEmbedElement(tweetId) {
         titleContainer.appendChild(otkThreadTitleDisplay);
         titleContainer.appendChild(cogIcon);
 
-        const clockIcon = document.createElement('span');
-        clockIcon.id = 'otk-clock-icon';
-        clockIcon.innerHTML = '&#128337;';
-        clockIcon.style.cssText = `
-            font-size: 16px;
-            margin-left: 10px;
-            cursor: pointer;
-            display: inline-block;
-            color: var(--otk-cog-icon-color);
-        `;
-        clockIcon.title = "Toggle Clock";
-        titleContainer.appendChild(clockIcon);
 
         const otkStatsDisplay = document.createElement('div');
         otkStatsDisplay.id = 'otk-stats-display';
@@ -931,7 +919,7 @@ function createTweetEmbedElement(tweetId) {
             display: flex;
             flex-direction: column;     /* Stack children vertically */
             align-items: flex-end;      /* Align children (top/bottom rows) to the right */
-            justify-content: space-between; /* Push top row to top, bottom row to bottom */
+            justify-content: center;    /* Center the buttons vertically */
             gap: 5px;                   /* Small gap between top and bottom rows if needed */
             height: 100%;               /* Occupy full height of parent for space-between */
         `;
@@ -4545,7 +4533,7 @@ function _populateAttachmentDivWithMedia(
         const diff = targetValue - startValue;
         if (diff <= 0) {
             if (targetValue > 0) {
-                element.textContent = `(+${targetValue} new)`;
+                element.textContent = `(+${targetValue})`;
             } else {
                 element.textContent = '';
             }
@@ -4553,7 +4541,7 @@ function _populateAttachmentDivWithMedia(
         }
 
         if (tabHidden) {
-            element.textContent = `(+${targetValue} new)`;
+            element.textContent = `(+${targetValue})`;
             return;
         }
 
@@ -4563,7 +4551,7 @@ function _populateAttachmentDivWithMedia(
         let current = startValue;
         const timer = setInterval(() => {
             current++;
-            element.textContent = `(+${current} new)`;
+            element.textContent = `(+${current})`;
             if (current >= targetValue) {
                 clearInterval(timer);
                 statAnimationTimers = statAnimationTimers.filter(t => t !== timer);
@@ -4653,7 +4641,7 @@ function _populateAttachmentDivWithMedia(
                 if (isBackgroundUpdate) {
                     animateStat(newCountSpan, startCount, newCount);
                 } else {
-                    newCountSpan.textContent = `(+${newCount} new)`;
+                    newCountSpan.textContent = `(+${newCount})`;
                 }
             } else {
                 newCountSpan.textContent = ''; // Explicitly clear if no new items
@@ -4673,7 +4661,7 @@ function _populateAttachmentDivWithMedia(
         button.textContent = text;
         button.classList.add('otk-tracker-button'); // Add a common class for potential shared base styles not from variables
         button.style.cssText = `
-            padding: 5px 10px;
+            padding: 12px 15px;
             cursor: pointer;
             background-color: var(--otk-button-bg-color);
             color: var(--otk-button-text-color);
@@ -4798,6 +4786,80 @@ function _populateAttachmentDivWithMedia(
         }
     });
 
+    // --- Draggable Countdown Timer ---
+    const countdownElement = document.createElement('div');
+    countdownElement.id = 'otk-countdown-timer-movable';
+    countdownElement.style.cssText = `
+        position: fixed;
+        top: 90px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: var(--otk-clock-bg-color, var(--otk-gui-bg-color));
+        padding: 5px;
+        border: 1px solid var(--otk-clock-border-color);
+        border-radius: 5px;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        cursor: move;
+        font-size: 14px;
+    `;
+    const countdownTimer = document.createElement('span');
+    countdownTimer.id = 'otk-countdown-timer';
+    countdownTimer.textContent = '00:00:00';
+    const countdownLabel = document.createElement('span');
+    countdownLabel.id = 'otk-countdown-label';
+    countdownLabel.textContent = 'Next Update:\u00A0';
+    countdownLabel.style.color = 'var(--otk-countdown-label-text-color)';
+    countdownTimer.style.color = 'var(--otk-countdown-timer-text-color)';
+    countdownElement.appendChild(countdownLabel);
+    countdownElement.appendChild(countdownTimer);
+    document.body.appendChild(countdownElement);
+
+    let isCountdownDragging = false;
+    let countdownOffsetX, countdownOffsetY;
+
+    const COUNTDOWN_POSITION_KEY = 'otkCountdownPosition';
+    try {
+        const savedCountdownPos = JSON.parse(localStorage.getItem(COUNTDOWN_POSITION_KEY));
+        if (savedCountdownPos && savedCountdownPos.top && savedCountdownPos.left) {
+            countdownElement.style.top = savedCountdownPos.top;
+            countdownElement.style.left = savedCountdownPos.left;
+            countdownElement.style.transform = 'none'; // Remove transform if we have a saved position
+        }
+    } catch (e) {
+        consoleError("Error parsing saved countdown position from localStorage:", e);
+    }
+
+    countdownElement.addEventListener('mousedown', (e) => {
+        isCountdownDragging = true;
+        countdownOffsetX = e.clientX - countdownElement.offsetLeft;
+        countdownOffsetY = e.clientY - countdownElement.offsetTop;
+        countdownElement.style.userSelect = 'none';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (isCountdownDragging) {
+            let newLeft = e.clientX - countdownOffsetX;
+            let newTop = e.clientY - countdownOffsetY;
+
+            countdownElement.style.left = newLeft + 'px';
+            countdownElement.style.top = newTop + 'px';
+            countdownElement.style.transform = 'none';
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isCountdownDragging) {
+            isCountdownDragging = false;
+            countdownElement.style.userSelect = '';
+            document.body.style.userSelect = '';
+            localStorage.setItem(COUNTDOWN_POSITION_KEY, JSON.stringify({top: countdownElement.style.top, left: countdownElement.style.left}));
+        }
+    });
+
+
     const buttonContainer = document.getElementById('otk-button-container');
     if (buttonContainer) {
         const btnToggleViewer = createTrackerButton('Toggle Viewer', 'otk-toggle-viewer-btn');
@@ -4852,47 +4914,7 @@ function _populateAttachmentDivWithMedia(
         // Debug mode checkbox and label are removed from here.
         // DEBUG_MODE is now only toggled via localStorage or by editing the script.
 
-        const bgUpdateContainer = document.createElement('div');
-        bgUpdateContainer.style.cssText = `display: flex; align-items: center;`;
-
-        const countdownContainer = document.createElement('div');
-        countdownContainer.id = 'otk-countdown-container';
-        countdownContainer.style.cssText = `display: flex; align-items: center;`;
-
-        const countdownTimer = document.createElement('span');
-        countdownTimer.id = 'otk-countdown-timer';
-        countdownTimer.textContent = '00:00:00';
-        countdownTimer.style.cssText = `font-size: 11px; color: var(--otk-countdown-text-color, #ff8040);`;
-
-        const countdownLabel = document.createElement('span');
-        countdownLabel.id = 'otk-countdown-label';
-        countdownLabel.textContent = 'Next Update';
-        countdownLabel.style.cssText = `font-size: 11px; color: var(--otk-countdown-text-color, #ff8040); margin-left: 5px;`;
-
-        countdownContainer.appendChild(countdownTimer);
-        countdownContainer.appendChild(countdownLabel);
-
-        const separator = document.createElement('span');
-        separator.textContent = '|';
-        separator.style.cssText = `font-size: 11px; color: var(--otk-separator-color, #e6e6e6); margin: 0 10px;`;
-
-        const bgUpdateCheckbox = document.createElement('input');
-        bgUpdateCheckbox.type = 'checkbox';
-        bgUpdateCheckbox.id = 'otk-disable-bg-update-checkbox';
-        bgUpdateCheckbox.checked = localStorage.getItem(BACKGROUND_UPDATES_DISABLED_KEY) === 'true';
-
-        const bgUpdateLabel = document.createElement('label');
-        bgUpdateLabel.htmlFor = 'otk-disable-bg-update-checkbox';
-        bgUpdateLabel.textContent = 'Disable Background Updates';
-        bgUpdateLabel.style.cssText = `font-size: 11px; color: var(--otk-disable-bg-font-color, #e6e6e6); white-space: normal; cursor: pointer; line-height: 1.2;`;
-
-        bgUpdateContainer.appendChild(countdownContainer);
-        bgUpdateContainer.appendChild(separator);
-        bgUpdateContainer.appendChild(bgUpdateLabel);
-        bgUpdateCheckbox.style.marginLeft = '5px';
-        bgUpdateContainer.appendChild(bgUpdateCheckbox);
-
-        controlsWrapper.appendChild(bgUpdateContainer);
+        // Countdown timer is now a separate draggable element
 
         const btnClearRefresh = createTrackerButton('Restart Tracker', 'otk-restart-tracker-btn');
 
@@ -4948,32 +4970,6 @@ function _populateAttachmentDivWithMedia(
             } finally {
                 btnClearRefresh.disabled = false;
                 consoleLog('[GUI] Restart operation finished.');
-            }
-        });
-
-        if (bgUpdateCheckbox.checked) {
-            consoleLog('Background updates are initially disabled by user preference.');
-        } else {
-            // startBackgroundRefresh(); // Will be called in main() after DB init
-        }
-
-        bgUpdateCheckbox.addEventListener('change', () => {
-            if (bgUpdateCheckbox.checked) {
-                stopBackgroundRefresh();
-                if (countdownIntervalId) {
-                    clearInterval(countdownIntervalId);
-                    countdownIntervalId = null;
-                }
-                const countdownTimer = document.getElementById('otk-countdown-timer');
-                if (countdownTimer) {
-                    countdownTimer.textContent = '--:--:--';
-                }
-                localStorage.setItem(BACKGROUND_UPDATES_DISABLED_KEY, 'true');
-                consoleLog('Background updates disabled via checkbox.');
-            } else {
-                localStorage.setItem(BACKGROUND_UPDATES_DISABLED_KEY, 'false');
-                startBackgroundRefresh(true); // Start immediately
-                consoleLog('Background updates enabled via checkbox.');
             }
         });
 
@@ -5403,9 +5399,14 @@ function applyThemeSettings() {
         updateColorInputs('disable-bg-font', settings.disableBgFontColor);
     }
 
-    if (settings.countdownTextColor) {
-        document.documentElement.style.setProperty('--otk-countdown-text-color', settings.countdownTextColor);
-        updateColorInputs('countdown-text', settings.countdownTextColor);
+    if (settings.countdownLabelTextColor) {
+        document.documentElement.style.setProperty('--otk-countdown-label-text-color', settings.countdownLabelTextColor);
+        updateColorInputs('countdown-label-text', settings.countdownLabelTextColor);
+    }
+
+    if (settings.countdownTimerTextColor) {
+        document.documentElement.style.setProperty('--otk-countdown-timer-text-color', settings.countdownTimerTextColor);
+        updateColorInputs('countdown-timer-text', settings.countdownTimerTextColor);
     }
 
     // New Messages Divider Color
@@ -5842,6 +5843,81 @@ function setupOptionsWindow() {
     memoryReportGroup.appendChild(memoryReportControlsWrapper);
     generalSettingsSection.appendChild(memoryReportGroup);
 
+    // --- Disable Background Updates Option ---
+    const bgUpdateGroup = document.createElement('div');
+    bgUpdateGroup.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 5px;";
+
+    const bgUpdateLabel = document.createElement('label');
+    bgUpdateLabel.textContent = "Disable Background Updates:";
+    bgUpdateLabel.htmlFor = 'otk-disable-bg-update-checkbox';
+    bgUpdateLabel.style.cssText = "font-size: 12px; text-align: left; flex-basis: 230px; flex-shrink: 0;";
+
+    const bgUpdateControlsWrapper = document.createElement('div');
+    bgUpdateControlsWrapper.style.cssText = "display: flex; flex-grow: 1; align-items: center; gap: 8px; min-width: 0; justify-content: flex-end;";
+
+    const bgUpdateCheckbox = document.createElement('input');
+    bgUpdateCheckbox.type = 'checkbox';
+    bgUpdateCheckbox.id = 'otk-disable-bg-update-checkbox';
+    bgUpdateCheckbox.style.cssText = "height: 16px; width: 16px;";
+    bgUpdateCheckbox.checked = localStorage.getItem(BACKGROUND_UPDATES_DISABLED_KEY) === 'true';
+
+    bgUpdateCheckbox.addEventListener('change', () => {
+        if (bgUpdateCheckbox.checked) {
+            stopBackgroundRefresh();
+            if (countdownIntervalId) {
+                clearInterval(countdownIntervalId);
+                countdownIntervalId = null;
+            }
+            const countdownTimer = document.getElementById('otk-countdown-timer');
+            if (countdownTimer) {
+                countdownTimer.textContent = '--:--:--';
+            }
+            localStorage.setItem(BACKGROUND_UPDATES_DISABLED_KEY, 'true');
+            consoleLog('Background updates disabled via checkbox.');
+        } else {
+            localStorage.setItem(BACKGROUND_UPDATES_DISABLED_KEY, 'false');
+            startBackgroundRefresh(true); // Start immediately
+            consoleLog('Background updates enabled via checkbox.');
+        }
+    });
+
+    bgUpdateControlsWrapper.appendChild(bgUpdateCheckbox);
+    bgUpdateGroup.appendChild(bgUpdateLabel);
+    bgUpdateGroup.appendChild(bgUpdateControlsWrapper);
+    generalSettingsSection.appendChild(bgUpdateGroup);
+
+    // --- Clock Toggle Option ---
+    const clockToggleGroup = document.createElement('div');
+    clockToggleGroup.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 5px;";
+
+    const clockToggleLabel = document.createElement('label');
+    clockToggleLabel.textContent = "Enable Clock:";
+    clockToggleLabel.htmlFor = 'otk-clock-toggle-checkbox';
+    clockToggleLabel.style.cssText = "font-size: 12px; text-align: left; flex-basis: 230px; flex-shrink: 0;";
+
+    const clockToggleControlsWrapper = document.createElement('div');
+    clockToggleControlsWrapper.style.cssText = "display: flex; flex-grow: 1; align-items: center; gap: 8px; min-width: 0; justify-content: flex-end;";
+
+    const clockToggleCheckbox = document.createElement('input');
+    clockToggleCheckbox.type = 'checkbox';
+    clockToggleCheckbox.id = 'otk-clock-toggle-checkbox';
+    clockToggleCheckbox.style.cssText = "height: 16px; width: 16px;";
+    clockToggleCheckbox.checked = localStorage.getItem('otkClockEnabled') === 'true';
+
+    clockToggleCheckbox.addEventListener('change', () => {
+        const isEnabled = clockToggleCheckbox.checked;
+        localStorage.setItem('otkClockEnabled', isEnabled);
+        const clockElement = document.getElementById('otk-clock');
+        if (clockElement) {
+            clockElement.style.display = isEnabled ? 'block' : 'none';
+        }
+    });
+
+    clockToggleControlsWrapper.appendChild(clockToggleCheckbox);
+    clockToggleGroup.appendChild(clockToggleLabel);
+    clockToggleGroup.appendChild(clockToggleControlsWrapper);
+    generalSettingsSection.appendChild(clockToggleGroup);
+
 
     // --- Theme/Appearance Section ---
     // This section will now be added after the general settings.
@@ -6214,7 +6290,8 @@ function setupOptionsWindow() {
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Background Updates Stats Text:", storageKey: 'backgroundUpdatesStatsTextColor', cssVariable: '--otk-background-updates-stats-text-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'background-updates-stats-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Cog Icon:", storageKey: 'cogIconColor', cssVariable: '--otk-cog-icon-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'cog-icon' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Disable Background Update Text:", storageKey: 'disableBgFontColor', cssVariable: '--otk-disable-bg-font-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'disable-bg-font' }));
-    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Timer Text:", storageKey: 'countdownTextColor', cssVariable: '--otk-countdown-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-text' }));
+    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Label Text:", storageKey: 'countdownLabelTextColor', cssVariable: '--otk-countdown-label-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-label-text' }));
+    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Timer Text:", storageKey: 'countdownTimerTextColor', cssVariable: '--otk-countdown-timer-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-timer-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Separator:", storageKey: 'separatorColor', cssVariable: '--otk-separator-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'separator' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Clock Background:", storageKey: 'clockBgColor', cssVariable: '--otk-clock-bg-color', defaultValue: '#181818', inputType: 'color', idSuffix: 'clock-bg' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Clock Text:", storageKey: 'clockTextColor', cssVariable: '--otk-clock-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'clock-text' }));
@@ -6893,7 +6970,8 @@ function setupOptionsWindow() {
             { storageKey: 'viewerQuote2plusHeaderBorderColor', cssVariable: '--otk-viewer-quote2plus-header-border-color', defaultValue: '#000000', inputType: 'color', idSuffix: 'viewer-quote2plus-border' },
             { storageKey: 'cogIconColor', cssVariable: '--otk-cog-icon-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'cog-icon' },
             { storageKey: 'disableBgFontColor', cssVariable: '--otk-disable-bg-font-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'disable-bg-font' },
-            { storageKey: 'countdownTextColor', cssVariable: '--otk-countdown-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-text' },
+            { storageKey: 'countdownLabelTextColor', cssVariable: '--otk-countdown-label-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-label-text' },
+            { storageKey: 'countdownTimerTextColor', cssVariable: '--otk-countdown-timer-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-timer-text' },
             { storageKey: 'separatorColor', cssVariable: '--otk-separator-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'separator' },
             { storageKey: 'optionsTextColor', cssVariable: '--otk-options-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'options-text' },
             { storageKey: 'newMessagesDividerColor', cssVariable: '--otk-new-messages-divider-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'new-msg-divider' },
@@ -7416,23 +7494,11 @@ async function main() {
         }
     });
 
-    if (localStorage.getItem('otkClockVisible') === 'true') {
+    if (localStorage.getItem('otkClockEnabled') === 'true') {
         const clockElement = document.getElementById('otk-clock');
         if (clockElement) {
             clockElement.style.display = 'block';
         }
-    }
-
-    const clockIcon = document.getElementById('otk-clock-icon');
-    if (clockIcon) {
-        clockIcon.addEventListener('click', () => {
-            const clockElement = document.getElementById('otk-clock');
-            if (clockElement) {
-                const isVisible = clockElement.style.display === 'none';
-                clockElement.style.display = isVisible ? 'block' : 'none';
-                localStorage.setItem('otkClockVisible', isVisible);
-            }
-        });
     }
 
     setInterval(updateClock, 1000);
