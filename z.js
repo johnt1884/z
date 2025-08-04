@@ -2401,7 +2401,32 @@ function _populateAttachmentDivWithMedia(
                 prefix = "⤷ ";
             }
 
-            headerContent.textContent = `${prefix}#${message.id} | ${timestampParts.time} | ${timestampParts.date}`;
+            const idSpan = document.createElement('span');
+            idSpan.textContent = `#${message.id} `;
+            idSpan.style.cursor = 'pointer';
+            idSpan.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const threadUrl = `https://boards.4chan.org/b/thread/${message.originalThreadId}`;
+                const popup = window.open(threadUrl, '_blank', 'width=260,height=425,resizable,scrollbars');
+                if (popup) {
+                    popup.addEventListener('load', () => {
+                        const script = popup.document.createElement('script');
+                        script.textContent = `
+                            const messageId = "${message.id}";
+                            const selector = \`#pi\${messageId} > span.postNum.desktop > a:nth-child(2)\`;
+                            const link = document.querySelector(selector);
+                            if (link) {
+                                link.click();
+                            }
+                        `;
+                        popup.document.body.appendChild(script);
+                    }, true);
+                }
+            });
+
+            headerContent.appendChild(document.createTextNode(prefix));
+            headerContent.appendChild(idSpan);
+            headerContent.appendChild(document.createTextNode(`\u00A0| ${timestampParts.time} | ${timestampParts.date}`));
 
             messageHeader.appendChild(headerContent);
             textWrapperDiv.appendChild(messageHeader);
@@ -2922,27 +2947,62 @@ function _populateAttachmentDivWithMedia(
                     leftHeaderContent.appendChild(colorSquare);
                 }
 
-                const idTextSpan = document.createElement('span');
-                idTextSpan.textContent = `#${message.id} | ${timestampParts.time}`; // Combined ID and Time
-                leftHeaderContent.appendChild(idTextSpan);
+                const idSpan = document.createElement('span');
+                idSpan.textContent = `#${message.id}`;
+                idSpan.style.cursor = 'pointer';
+                idSpan.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const threadUrl = `https://boards.4chan.org/b/thread/${message.originalThreadId}`;
+                    const popup = window.open(threadUrl, '_blank', 'width=460,height=425,resizable,scrollbars');
+                    if (popup) {
+                        popup.addEventListener('load', () => {
+                            const script = popup.document.createElement('script');
+                            script.textContent = `
+                                const messageId = "${message.id}";
+                                const selector = \`#pi\${messageId} > span.postNum.desktop > a:nth-child(2)\`;
+                                const link = document.querySelector(selector);
+                                if (link) {
+                                    link.click();
+                                }
+                            `;
+                            popup.document.body.appendChild(script);
+                        }, true);
+                    }
+                });
 
-                // const timeSpan = document.createElement('span'); // Removed
-                // timeSpan.textContent = timestampParts.time;
-                // timeSpan.style.textAlign = 'center';
-                // timeSpan.style.flexGrow = '1';
+                const timeText = document.createTextNode(`\u00A0| ${timestampParts.time}`);
+                leftHeaderContent.appendChild(idSpan);
+                leftHeaderContent.appendChild(timeText);
 
                 const dateSpan = document.createElement('span');
                 dateSpan.textContent = timestampParts.date;
-                // dateSpan.style.paddingRight = '5px'; // Padding might not be needed or can be adjusted
 
-                messageHeader.appendChild(leftHeaderContent); // Add the new container
-                // messageHeader.appendChild(timeSpan); // Removed
+                messageHeader.appendChild(leftHeaderContent);
                 messageHeader.appendChild(dateSpan);
             } else { // Simplified header for quoted messages
                 messageHeader.style.justifyContent = 'flex-start'; // Align ID to the start
                 const idSpan = document.createElement('span');
                 idSpan.textContent = ` >>${message.id}`; // Changed prefix for quoted messages
-                // Time and Date spans are intentionally omitted for quoted messages
+                idSpan.style.cursor = 'pointer';
+                idSpan.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const threadUrl = `https://boards.4chan.org/b/thread/${message.originalThreadId}`;
+                    const popup = window.open(threadUrl, '_blank', 'width=460,height=425,resizable,scrollbars,popup=true');
+                    if (popup) {
+                        popup.addEventListener('load', () => {
+                            const script = popup.document.createElement('script');
+                            script.textContent = `
+                                const messageId = "${message.id}";
+                                const selector = \`#pi\${messageId} > span.postNum.desktop > a:nth-child(2)\`;
+                                const link = document.querySelector(selector);
+                                if (link) {
+                                    link.click();
+                                }
+                            `;
+                            popup.document.body.appendChild(script);
+                        }, true);
+                    }
+                });
                 messageHeader.appendChild(idSpan);
             }
             messageDiv.appendChild(messageHeader);
@@ -5745,7 +5805,7 @@ function setupOptionsWindow() {
     suspendGroup.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 5px;";
 
     const suspendLabel = document.createElement('label');
-    suspendLabel.textContent = "Suspend updates after (minutes):";
+    suspendLabel.textContent = "Suspend after inactivity:";
     suspendLabel.htmlFor = 'otk-suspend-after-inactive-select';
     suspendLabel.style.cssText = "font-size: 12px; text-align: left; flex-basis: 230px; flex-shrink: 0;";
 
@@ -5870,7 +5930,7 @@ function setupOptionsWindow() {
             }
             const countdownTimer = document.getElementById('otk-countdown-timer');
             if (countdownTimer) {
-                countdownTimer.textContent = '--:--:--';
+                countdownTimer.textContent = 'n/a';
             }
             localStorage.setItem(BACKGROUND_UPDATES_DISABLED_KEY, 'true');
             consoleLog('Background updates disabled via checkbox.');
@@ -6289,7 +6349,6 @@ function setupOptionsWindow() {
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Stats Text:", storageKey: 'actualStatsTextColor', cssVariable: '--otk-stats-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'actual-stats-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Background Updates Stats Text:", storageKey: 'backgroundUpdatesStatsTextColor', cssVariable: '--otk-background-updates-stats-text-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'background-updates-stats-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Cog Icon:", storageKey: 'cogIconColor', cssVariable: '--otk-cog-icon-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'cog-icon' }));
-    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Disable Background Update Text:", storageKey: 'disableBgFontColor', cssVariable: '--otk-disable-bg-font-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'disable-bg-font' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Label Text:", storageKey: 'countdownLabelTextColor', cssVariable: '--otk-countdown-label-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-label-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Countdown Timer Text:", storageKey: 'countdownTimerTextColor', cssVariable: '--otk-countdown-timer-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-timer-text' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Separator:", storageKey: 'separatorColor', cssVariable: '--otk-separator-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'separator' }));
@@ -6386,8 +6445,8 @@ function setupOptionsWindow() {
 
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Background:", storageKey: 'viewerBgColor', cssVariable: '--otk-viewer-bg-color', defaultValue: '#181818', inputType: 'color', idSuffix: 'viewer-bg' }));
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "GUI Bottom Border:", storageKey: 'guiBottomBorderColor', cssVariable: '--otk-gui-bottom-border-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'gui-bottom-border' }));
-    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "New Messages Divider:", storageKey: 'newMessagesDividerColor', cssVariable: '--otk-new-messages-divider-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'new-msg-divider' }));
-    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "New Messages Text:", storageKey: 'newMessagesFontColor', cssVariable: '--otk-new-messages-font-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'new-msg-font' }));
+    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "New Messages Divider:", storageKey: 'newMessagesDividerColor', cssVariable: '--otk-new-messages-divider-color', defaultValue: '#000000', inputType: 'color', idSuffix: 'new-msg-divider' }));
+    themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "New Messages Text:", storageKey: 'newMessagesFontColor', cssVariable: '--otk-new-messages-font-color', defaultValue: '#000000', inputType: 'color', idSuffix: 'new-msg-font' }));
 
     // Anchor Highlight Colors
     themeOptionsContainer.appendChild(createThemeOptionRow({ labelText: "Anchor Highlight Background:", storageKey: 'anchorHighlightBgColor', cssVariable: '--otk-anchor-highlight-bg-color', defaultValue: '#4a4a3a', inputType: 'color', idSuffix: 'anchor-bg', requiresRerender: true }));
@@ -6974,8 +7033,8 @@ function setupOptionsWindow() {
             { storageKey: 'countdownTimerTextColor', cssVariable: '--otk-countdown-timer-text-color', defaultValue: '#ff8040', inputType: 'color', idSuffix: 'countdown-timer-text' },
             { storageKey: 'separatorColor', cssVariable: '--otk-separator-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'separator' },
             { storageKey: 'optionsTextColor', cssVariable: '--otk-options-text-color', defaultValue: '#e6e6e6', inputType: 'color', idSuffix: 'options-text' },
-            { storageKey: 'newMessagesDividerColor', cssVariable: '--otk-new-messages-divider-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'new-msg-divider' },
-            { storageKey: 'newMessagesFontColor', cssVariable: '--otk-new-messages-font-color', defaultValue: '#FFD700', inputType: 'color', idSuffix: 'new-msg-font' },
+            { storageKey: 'newMessagesDividerColor', cssVariable: '--otk-new-messages-divider-color', defaultValue: '#000000', inputType: 'color', idSuffix: 'new-msg-divider' },
+            { storageKey: 'newMessagesFontColor', cssVariable: '--otk-new-messages-font-color', defaultValue: '#000000', inputType: 'color', idSuffix: 'new-msg-font' },
 
             // Anchor Highlight Colors
             { storageKey: 'anchorHighlightBgColor', cssVariable: '--otk-anchor-highlight-bg-color', defaultValue: '#ffd1a4', inputType: 'color', idSuffix: 'anchor-bg' },
@@ -7224,10 +7283,10 @@ async function main() {
             --otk-gui-bottom-border-color: #ff8040; /* Default for GUI bottom border - remains common */
             --otk-cog-icon-color: #e6e6e6; /* Default for settings cog icon */
             --otk-disable-bg-font-color: #ff8040; /* Default for "Disable Background Updates" text */
-            --otk-countdown-text-color: #ff8040; /* Default for countdown timer text */
+            --otk-countdown-timer-text-color: #ff8040; /* Default for countdown timer text */
             --otk-viewer-quote2plus-header-border-color: #000000; /* Default for Depth 2+ message header underline - Now black */
-            --otk-new-messages-divider-color: #FFD700; /* Default for new message separator line */
-            --otk-new-messages-font-color: #FFD700; /* Default for new message separator text */
+            --otk-new-messages-divider-color: #000000; /* Default for new message separator line */
+            --otk-new-messages-font-color: #000000; /* Default for new message separator text */
 
             /* New Depth-Specific Content Font Sizes */
             --otk-msg-depth0-content-font-size: 16px;
@@ -7467,6 +7526,10 @@ async function main() {
                 startBackgroundRefresh();
             } else {
                 consoleLog("Background updates are disabled by user preference.");
+                const countdownTimer = document.getElementById('otk-countdown-timer');
+                if (countdownTimer) {
+                    countdownTimer.textContent = 'n/a';
+                }
             }
 
             consoleLog("OTK Thread Tracker script initialized and running.");
