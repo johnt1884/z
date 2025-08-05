@@ -1883,6 +1883,7 @@ function _populateAttachmentDivWithMedia(
     viewerTopLevelAttachedVideoHashes, // Set for video stats
     otkMediaDB // IndexedDB instance
 ) {
+    let resizeIcon;
     if (!message.attachment || !message.attachment.ext) {
         return;
     }
@@ -1976,7 +1977,6 @@ function _populateAttachmentDivWithMedia(
         const thumbSrc = `https://i.4cdn.org/${actualBoardForLink}/${message.attachment.tim}s.jpg`;
 
         img.onload = () => {
-            // Properties are already set, just need to ensure it's visible
             img.style.display = 'block';
         };
         img.onerror = () => {
@@ -2055,11 +2055,11 @@ function _populateAttachmentDivWithMedia(
         });
 
         // Create the resize icon
-        const resizeIcon = document.createElement('div');
+        resizeIcon = document.createElement('div');
+        resizeIcon.classList.add('resize-icon');
         resizeIcon.style.cssText = `
             position: absolute;
             top: 5px;
-            left: 34px;
             width: 24px;
             height: 24px;
             background-color: var(--otk-resize-icon-bg-color);
@@ -2120,6 +2120,27 @@ function _populateAttachmentDivWithMedia(
         imageWrapper.appendChild(blurIcon);
         imageWrapper.appendChild(resizeIcon);
         attachmentDiv.appendChild(imageWrapper);
+
+        const observer = new MutationObserver(updateIconPositions);
+
+        function updateIconPositions() {
+            console.log("updateIconPositions called");
+            observer.disconnect(); // Disconnect the observer to prevent an infinite loop
+            if (!resizeIcon || !img.isConnected) return;
+            const iconWidth = 24;
+            const offset = 5;
+            const imageWidth = img.offsetWidth;
+            if (imageWidth > 0) {
+                resizeIcon.style.top = offset + 'px';
+                resizeIcon.style.left = (imageWidth - iconWidth - offset) + 'px';
+                resizeIcon.style.right = 'auto';
+            }
+            observer.observe(img, { attributes: true, attributeFilter: ['style', 'src'] });
+        }
+
+        observer.observe(img, { attributes: true, attributeFilter: ['style', 'src'] });
+
+        img.addEventListener('load', updateIconPositions);
 
     } else if (extLower.endsWith('webm') || extLower.endsWith('mp4')) {
         const videoElement = document.createElement('video');
@@ -2191,10 +2212,22 @@ function _populateAttachmentDivWithMedia(
     }
 }
 
-    // Signature now includes parentMessageId
-    function createMessageElementDOM(message, mediaLoadPromises, uniqueImageViewerHashes, boardForLink, isTopLevelMessage, currentDepth, threadColor, parentMessageId = null) {
+    // Signature now includes parentMessageId and ancestors
+    function createMessageElementDOM(message, mediaLoadPromises, uniqueImageViewerHashes, boardForLink, isTopLevelMessage, currentDepth, threadColor, parentMessageId = null, ancestors = new Set()) {
         const layoutStyle = localStorage.getItem('otkMessageLayoutStyle') || 'default';
         consoleLog(`[DepthCheck] Rendering message: ${message.id}, parent: ${parentMessageId}, currentDepth: ${currentDepth}, MAX_QUOTE_DEPTH: ${MAX_QUOTE_DEPTH}, isTopLevel: ${isTopLevelMessage}, layoutStyle: ${layoutStyle}`);
+
+        // Stack overflow prevention: Check for circular references.
+        if (ancestors.has(message.id)) {
+            consoleWarn(`[CircularRef] Circular reference detected for message ID ${message.id}. Aborting render for this branch.`);
+            const circularRefSpan = document.createElement('span');
+            circularRefSpan.textContent = `>>${message.id} (Circular Reference Detected)`;
+            circularRefSpan.style.color = '#ff6b6b';
+            return circularRefSpan;
+        }
+
+        // Add current message ID to the set of ancestors for the recursive calls.
+        const newAncestors = new Set(ancestors).add(message.id);
 
         let seenEmbeds = [];
         try {
