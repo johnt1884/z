@@ -3060,22 +3060,21 @@ function _populateAttachmentDivWithMedia(
 
             if (message.text && typeof message.text === 'string') {
                 const lines = message.text.split('\n');
-                const quoteRegex = /^>>(\d+)/;
+                const quoteRegex = /^>>(\d+)/; // For block-level quotes
+                const inlineQuoteRegex = />>(\d+)/; // For inline quotes
 
                 lines.forEach((line, lineIndex) => {
                     const trimmedLine = line.trim();
-                    const quoteMatch = trimmedLine.match(quoteRegex);
-                    if (quoteMatch && quoteMatch[0] === trimmedLine && currentDepth >= MAX_QUOTE_DEPTH) {
-                        return; // Skip this line entirely
+                    const isBlockQuote = trimmedLine.match(quoteRegex) && trimmedLine.match(quoteRegex)[0] === trimmedLine;
+
+                    if (isBlockQuote && currentDepth >= MAX_QUOTE_DEPTH) {
+                        return; // Skip rendering this line entirely if it's a blockquote at max depth
                     }
+
                     let processedAsEmbed = false;
-
-                    // All pattern definitions have been moved to the top of createMessageElementDOM.
-                    // The duplicate Streamable pattern block will also be removed by this change
-                    // as we are replacing the entire section where they were previously defined.
-
                     let soleUrlEmbedMade = false;
 
+                    // --- 1. Handle lines that are solely a media URL ---
                     // Check for Sole YouTube URL
                     if (!soleUrlEmbedMade) {
                         for (const patternObj of youtubePatterns) {
@@ -3088,25 +3087,24 @@ function _populateAttachmentDivWithMedia(
                                 if (videoId) {
                                     const canonicalEmbedId = `youtube_${videoId}`;
                                     if (isTopLevelMessage) {
-                                        // Add to viewer-specific top-level set
                                         viewerTopLevelEmbedIds.add(canonicalEmbedId);
-
-                                        // Existing global stat update logic (SEEN_EMBED_URL_IDS_KEY, LOCAL_VIDEO_COUNT_KEY)
                                         if (!seenEmbeds.includes(canonicalEmbedId)) {
                                             seenEmbeds.push(canonicalEmbedId);
                                             localStorage.setItem(SEEN_EMBED_URL_IDS_KEY, JSON.stringify(seenEmbeds));
                                             let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
                                             localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
-                                    updateDisplayedStatistics(false); // This updates global, not viewer-specific directly
+                                            updateDisplayedStatistics(false);
                                         }
                                     }
                                     textElement.appendChild(createYouTubeEmbedElement(videoId, timestampStr));
-                                    soleUrlEmbedMade = true; processedAsEmbed = true; break;
+                                    soleUrlEmbedMade = true;
+                                    processedAsEmbed = true;
+                                    break;
                                 }
                             }
                         }
                     }
-
+                    // (Similar blocks for Twitch, TikTok, Streamable as in the original code)
                     // Check for Sole Twitch URL
                     if (!soleUrlEmbedMade) {
                         for (const patternObj of twitchPatterns) {
@@ -3121,26 +3119,24 @@ function _populateAttachmentDivWithMedia(
                                 if (id) {
                                     const canonicalEmbedId = `twitch_${patternObj.type}_${id}`;
                                     if (isTopLevelMessage) {
-                                        // Add to viewer-specific top-level set
                                         viewerTopLevelEmbedIds.add(canonicalEmbedId);
-
-                                        // Existing global stat update logic
                                         if (!seenEmbeds.includes(canonicalEmbedId)) {
                                             seenEmbeds.push(canonicalEmbedId);
                                             localStorage.setItem(SEEN_EMBED_URL_IDS_KEY, JSON.stringify(seenEmbeds));
                                             let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
                                             localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
-                                    updateDisplayedStatistics(false);
+                                            updateDisplayedStatistics(false);
                                         }
                                     }
                                     textElement.appendChild(createTwitchEmbedElement(patternObj.type, id, timestampStr));
-                                    soleUrlEmbedMade = true; processedAsEmbed = true; break;
+                                    soleUrlEmbedMade = true;
+                                    processedAsEmbed = true;
+                                    break;
                                 }
                             }
                         }
                     }
-
-                    // Check for Sole Streamable URL
+                    // Check for Sole TikTok URL
                     if (!soleUrlEmbedMade) {
                         for (const patternObj of tiktokPatterns) {
                             const match = trimmedLine.match(patternObj.regex);
@@ -3155,43 +3151,46 @@ function _populateAttachmentDivWithMedia(
                                             localStorage.setItem(SEEN_EMBED_URL_IDS_KEY, JSON.stringify(seenEmbeds));
                                             let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
                                             localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
-                                    updateDisplayedStatistics(false);
+                                            updateDisplayedStatistics(false);
                                         }
                                     }
                                     textElement.appendChild(createTikTokEmbedElement(videoId));
-                                    soleUrlEmbedMade = true; processedAsEmbed = true; break;
+                                    soleUrlEmbedMade = true;
+                                    processedAsEmbed = true;
+                                    break;
                                 }
                             }
                         }
                     }
+                    // Check for Sole Streamable URL
                     if (!soleUrlEmbedMade) {
                         for (const patternObj of streamablePatterns) {
                             const match = trimmedLine.match(patternObj.regex);
                             if (match) {
                                 const videoId = match[patternObj.idGroup];
-                                // Streamable doesn't have standard URL timestamps to parse here
                                 if (videoId) {
                                     const canonicalEmbedId = `streamable_${videoId}`;
                                     if (isTopLevelMessage) {
-                                        // Add to viewer-specific top-level set
                                         viewerTopLevelEmbedIds.add(canonicalEmbedId);
-
-                                        // Existing global stat update logic
                                         if (!seenEmbeds.includes(canonicalEmbedId)) {
                                             seenEmbeds.push(canonicalEmbedId);
                                             localStorage.setItem(SEEN_EMBED_URL_IDS_KEY, JSON.stringify(seenEmbeds));
                                             let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
                                             localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
-                                    updateDisplayedStatistics(false);
+                                            updateDisplayedStatistics(false);
                                         }
                                     }
                                     textElement.appendChild(createStreamableEmbedElement(videoId));
-                                    soleUrlEmbedMade = true; processedAsEmbed = true; break;
+                                    soleUrlEmbedMade = true;
+                                    processedAsEmbed = true;
+                                    break;
                                 }
                             }
                         }
                     }
 
+
+                    // --- 2. Handle mixed content lines iteratively ---
                     if (!soleUrlEmbedMade) {
                         let currentTextSegment = line;
 
@@ -3199,134 +3198,121 @@ function _populateAttachmentDivWithMedia(
                             let earliestMatch = null;
                             let earliestMatchPattern = null;
                             let earliestMatchType = null;
+                            let earliestMatchIsQuoteLink = false;
 
-                            // Find earliest YouTube inline match
-                            for (const patternObj of inlineYoutubePatterns) {
+                            // Find earliest media embed match
+                            for (const patternObj of [...inlineYoutubePatterns, ...inlineKickPatterns, ...inlineTiktokPatterns, ...inlineTwitchPatterns, ...inlineStreamablePatterns]) {
                                 const matchAttempt = currentTextSegment.match(patternObj.regex);
-                                if (matchAttempt) {
-                                    if (earliestMatch === null || matchAttempt.index < earliestMatch.index) {
-                                        earliestMatch = matchAttempt;
-                                        earliestMatchPattern = patternObj;
-                                        earliestMatchType = 'youtube';
-                                    }
+                                if (matchAttempt && (earliestMatch === null || matchAttempt.index < earliestMatch.index)) {
+                                    earliestMatch = matchAttempt;
+                                    earliestMatchPattern = patternObj;
+                                    // Determine type based on pattern object properties if needed, simplified here
+                                    if (inlineYoutubePatterns.includes(patternObj)) earliestMatchType = 'youtube';
+                                    else if (inlineKickPatterns.includes(patternObj)) earliestMatchType = 'kick';
+                                    else if (inlineTiktokPatterns.includes(patternObj)) earliestMatchType = 'tiktok';
+                                    else if (inlineTwitchPatterns.includes(patternObj)) earliestMatchType = 'twitch';
+                                    else if (inlineStreamablePatterns.includes(patternObj)) earliestMatchType = 'streamable';
+                                    earliestMatchIsQuoteLink = false;
                                 }
                             }
 
-                            // Find earliest Kick inline match
-                            for (const patternObj of inlineKickPatterns) {
-                                const matchAttempt = currentTextSegment.match(patternObj.regex);
-                                if (matchAttempt) {
-                                    if (earliestMatch === null || matchAttempt.index < earliestMatch.index) {
-                                        earliestMatch = matchAttempt;
-                                        earliestMatchPattern = patternObj;
-                                        earliestMatchType = 'kick';
-                                    }
-                                }
-                            }
-
-                            // Find earliest TikTok inline match
-                            for (const patternObj of inlineTiktokPatterns) {
-                                const matchAttempt = currentTextSegment.match(patternObj.regex);
-                                if (matchAttempt) {
-                                    if (earliestMatch === null || matchAttempt.index < earliestMatch.index) {
-                                        earliestMatch = matchAttempt;
-                                        earliestMatchPattern = patternObj;
-                                        earliestMatchType = 'tiktok';
-                                    }
-                                }
-                            }
-
-                            // Find earliest Twitch inline match
-                            for (const patternObj of inlineTwitchPatterns) {
-                                const matchAttempt = currentTextSegment.match(patternObj.regex);
-                                if (matchAttempt) {
-                                    if (earliestMatch === null || matchAttempt.index < earliestMatch.index) {
-                                        earliestMatch = matchAttempt;
-                                        earliestMatchPattern = patternObj;
-                                        earliestMatchType = 'twitch';
-                                    }
-                                }
-                            }
-                            // Find earliest Streamable inline match
-                            for (const patternObj of inlineStreamablePatterns) {
-                                const matchAttempt = currentTextSegment.match(patternObj.regex);
-                                if (matchAttempt) {
-                                    if (earliestMatch === null || matchAttempt.index < earliestMatch.index) {
-                                        earliestMatch = matchAttempt;
-                                        earliestMatchPattern = patternObj; // type is 'video'
-                                        earliestMatchType = 'streamable';
-                                    }
-                                }
+                            // Find earliest >>ddd quote link match
+                            const quoteLinkMatch = currentTextSegment.match(inlineQuoteRegex);
+                            if (quoteLinkMatch && (earliestMatch === null || quoteLinkMatch.index < earliestMatch.index)) {
+                                earliestMatch = quoteLinkMatch;
+                                earliestMatchType = null;
+                                earliestMatchIsQuoteLink = true;
                             }
 
                             if (earliestMatch) {
                                 processedAsEmbed = true;
-
+                                // Append text before the match
                                 if (earliestMatch.index > 0) {
-                                    appendTextOrQuoteSegment(textElement, currentTextSegment.substring(0, earliestMatch.index), quoteRegex, currentDepth, MAX_QUOTE_DEPTH, messagesByThreadId, uniqueImageViewerHashes, boardForLink, mediaLoadPromises, message.id);
+                                    textElement.appendChild(document.createTextNode(currentTextSegment.substring(0, earliestMatch.index)));
                                 }
 
-                                const matchedUrl = earliestMatch[0];
-                                const id = earliestMatch[earliestMatchPattern.idGroup];
-                                let timestampStr = null; // Relevant for YT & Twitch VODs
-                                let embedElement = null;
-                                let canonicalEmbedId = null;
+                                const matchedText = earliestMatch[0];
 
-                                if (earliestMatchType === 'youtube') {
-                                    const timeMatchInUrl = matchedUrl.match(youtubeTimestampRegex);
-                                    if (timeMatchInUrl && timeMatchInUrl[1]) timestampStr = timeMatchInUrl[1];
-                                    if (id) {
+                                if (earliestMatchIsQuoteLink) {
+                                    // Handle quote rendering directly, respecting MAX_QUOTE_DEPTH
+                                    if (currentDepth >= MAX_QUOTE_DEPTH) {
+                                        textElement.appendChild(document.createTextNode(matchedText));
+                                    } else {
+                                        const quotedMessageId = earliestMatch[1];
+                                        let quotedMessageObject = null;
+                                        for (const threadIdKey in messagesByThreadId) {
+                                            if (messagesByThreadId.hasOwnProperty(threadIdKey)) {
+                                                const foundMsg = messagesByThreadId[threadIdKey].find(m => m.id === Number(quotedMessageId));
+                                                if (foundMsg) {
+                                                    quotedMessageObject = foundMsg;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if (quotedMessageObject) {
+                                            const quotedElement = createMessageElementDOM(quotedMessageObject, mediaLoadPromises, uniqueImageViewerHashes, quotedMessageObject.board || boardForLink, false, currentDepth + 1, null, message.id, newAncestors);
+                                            if (quotedElement) {
+                                                textElement.appendChild(quotedElement);
+                                            }
+                                        } else {
+                                            const notFoundSpan = document.createElement('span');
+                                            notFoundSpan.textContent = `>>${quotedMessageId} (Not Found)`;
+                                            notFoundSpan.style.color = '#88ccee';
+                                            notFoundSpan.style.textDecoration = 'underline';
+                                            textElement.appendChild(notFoundSpan);
+                                        }
+                                    }
+                                } else { // It's a media embed
+                                    const id = earliestMatch[earliestMatchPattern.idGroup];
+                                    let timestampStr = null;
+                                    let embedElement = null;
+                                    let canonicalEmbedId = null;
+
+                                    if (earliestMatchType === 'youtube') {
+                                        const timeMatchInUrl = matchedText.match(youtubeTimestampRegex);
+                                        if (timeMatchInUrl && timeMatchInUrl[1]) timestampStr = timeMatchInUrl[1];
                                         canonicalEmbedId = `youtube_${id}`;
                                         embedElement = createYouTubeEmbedElement(id, timestampStr);
-                                    }
-                                } else if (earliestMatchType === 'twitch') {
-                                    if (earliestMatchPattern.type === 'vod') {
-                                        const timeMatchInUrl = matchedUrl.match(twitchTimestampRegex);
-                                        if (timeMatchInUrl && timeMatchInUrl[1]) timestampStr = timeMatchInUrl[1];
-                                    }
-                                    if (id) {
+                                    } else if (earliestMatchType === 'twitch') {
+                                        if (earliestMatchPattern.type === 'vod') {
+                                            const timeMatchInUrl = matchedText.match(twitchTimestampRegex);
+                                            if (timeMatchInUrl && timeMatchInUrl[1]) timestampStr = timeMatchInUrl[1];
+                                        }
                                         canonicalEmbedId = `twitch_${earliestMatchPattern.type}_${id}`;
                                         embedElement = createTwitchEmbedElement(earliestMatchPattern.type, id, timestampStr);
-                                    }
-                                } else if (earliestMatchType === 'streamable') {
-                                    if (id) {
+                                    } else if (earliestMatchType === 'streamable') {
                                         canonicalEmbedId = `streamable_${id}`;
                                         embedElement = createStreamableEmbedElement(id);
-                                    }
-                                } else if (earliestMatchType === 'tiktok') {
-                                    if (id) {
+                                    } else if (earliestMatchType === 'tiktok') {
                                         canonicalEmbedId = `tiktok_${id}`;
                                         embedElement = createTikTokEmbedElement(id);
-                                    }
-                                } else if (earliestMatchType === 'kick') {
-                                    if (id) {
+                                    } else if (earliestMatchType === 'kick') {
                                         canonicalEmbedId = `kick_${id}`;
                                         embedElement = createKickEmbedElement(id);
                                     }
-                                }
-                                if (embedElement) {
-                                    if (isTopLevelMessage && canonicalEmbedId) {
-                                        // Add to viewer-specific top-level set
-                                        viewerTopLevelEmbedIds.add(canonicalEmbedId);
 
-                                        // Existing global stat update logic
-                                        if (!seenEmbeds.includes(canonicalEmbedId)) {
-                                            seenEmbeds.push(canonicalEmbedId);
-                                            localStorage.setItem(SEEN_EMBED_URL_IDS_KEY, JSON.stringify(seenEmbeds));
-                                            let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
-                                            localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
-                                    updateDisplayedStatistics(false);
+                                    if (embedElement) {
+                                        if (isTopLevelMessage && canonicalEmbedId) {
+                                            viewerTopLevelEmbedIds.add(canonicalEmbedId);
+                                            if (!seenEmbeds.includes(canonicalEmbedId)) {
+                                                seenEmbeds.push(canonicalEmbedId);
+                                                localStorage.setItem(SEEN_EMBED_URL_IDS_KEY, JSON.stringify(seenEmbeds));
+                                                let currentVideoCount = parseInt(localStorage.getItem(LOCAL_VIDEO_COUNT_KEY) || '0');
+                                                localStorage.setItem(LOCAL_VIDEO_COUNT_KEY, (currentVideoCount + 1).toString());
+                                                updateDisplayedStatistics(false);
+                                            }
                                         }
+                                        textElement.appendChild(embedElement);
                                     }
-                                    textElement.appendChild(embedElement);
                                 }
-
-                                currentTextSegment = currentTextSegment.substring(earliestMatch.index + matchedUrl.length);
+                                currentTextSegment = currentTextSegment.substring(earliestMatch.index + matchedText.length);
                             } else {
+                                // No more matches, append the rest of the text
                                 if (currentTextSegment.length > 0) {
-                                    appendTextOrQuoteSegment(textElement, currentTextSegment, quoteRegex, currentDepth, MAX_QUOTE_DEPTH, messagesByThreadId, uniqueImageViewerHashes, boardForLink, mediaLoadPromises, message.id);
+                                    textElement.appendChild(document.createTextNode(currentTextSegment));
                                 }
-                                currentTextSegment = "";
+                                currentTextSegment = ""; // Exit loop
                             }
                         }
                     }
